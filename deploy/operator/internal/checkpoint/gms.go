@@ -8,7 +8,9 @@ package checkpoint
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 
+	nvidiacomv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/api/v1alpha1"
 	gms "github.com/ai-dynamo/dynamo/deploy/operator/internal/gms"
 	snapshotprotocol "github.com/ai-dynamo/dynamo/deploy/snapshot/protocol"
 	corev1 "k8s.io/api/core/v1"
@@ -29,10 +31,17 @@ const (
 // EnsureGMSRestoreSidecars adds the GMS server init sidecar and loader.
 // The loader is a regular sidecar; the GMS RO lock — not init-phase ordering —
 // gates the restored engine on weight load. Idempotent.
+//
+// If checkpointSpec.Loader is non-nil, the user-supplied image/command/envs/
+// volumeMounts are layered on top of the operator-built default container via
+// applyGMSSidecarSpec. The default container (including GMS_CHECKPOINT_DIR env
+// and the checkpoint-PVC volume mount) is built unconditionally first, so when
+// checkpointSpec.Loader is nil behavior is byte-identical to before.
 func EnsureGMSRestoreSidecars(
 	podSpec *corev1.PodSpec,
 	mainContainer *corev1.Container,
 	storage snapshotprotocol.Storage,
+	checkpointSpec *nvidiacomv1alpha1.GMSCheckpointSpec,
 ) {
 	if podSpec == nil || mainContainer == nil {
 		return
@@ -50,16 +59,24 @@ func EnsureGMSRestoreSidecars(
 	loader := gms.Container(GMSLoaderContainer, gmsCheckpointLoaderModule, mainContainer.Image)
 	loader.VolumeMounts = append(loader.VolumeMounts, corev1.VolumeMount{Name: snapshotprotocol.CheckpointVolumeName, MountPath: storage.BasePath})
 	loader.Env = append(loader.Env, corev1.EnvVar{Name: envCheckpointDir, Value: resolveGMSArtifactDir(storage)})
+	loader = applyGMSSidecarSpec(loader, gmsCheckpointSpecLoader(checkpointSpec))
 	podSpec.Containers = append(podSpec.Containers, loader)
 }
 
 // EnsureGMSCheckpointJobSidecars adds the GMS server init sidecar and saver
 // as a regular Job container. Saver is a regular container (not init+sleep)
 // so Job completion gates on tensor write.
+//
+// If checkpointSpec.Saver is non-nil, the user-supplied image/command/envs/
+// volumeMounts are layered on top of the operator-built default container via
+// applyGMSSidecarSpec. The default container (including GMS_CHECKPOINT_DIR env
+// and the checkpoint-PVC volume mount) is built unconditionally first, so when
+// checkpointSpec.Saver is nil behavior is byte-identical to before.
 func EnsureGMSCheckpointJobSidecars(
 	podSpec *corev1.PodSpec,
 	mainContainer *corev1.Container,
 	storage snapshotprotocol.Storage,
+	checkpointSpec *nvidiacomv1alpha1.GMSCheckpointSpec,
 ) error {
 	if podSpec == nil || mainContainer == nil {
 		return nil
@@ -79,8 +96,81 @@ func EnsureGMSCheckpointJobSidecars(
 	saver := gms.Container(GMSSaverContainer, gmsCheckpointSaverModule, mainContainer.Image)
 	saver.VolumeMounts = append(saver.VolumeMounts, corev1.VolumeMount{Name: snapshotprotocol.CheckpointVolumeName, MountPath: storage.BasePath})
 	saver.Env = append(saver.Env, corev1.EnvVar{Name: envCheckpointDir, Value: gmsArtifactDir})
+	saver = applyGMSSidecarSpec(saver, gmsCheckpointSpecSaver(checkpointSpec))
 	podSpec.Containers = append(podSpec.Containers, saver)
 	return nil
+}
+
+// applyGMSSidecarSpec layers a user-supplied GMSSidecarSpec on top of the
+// operator-built base container. Empty/nil spec leaves base untouched. The
+// container name is operator-owned and never overwritten; operator-set
+// fields (GMS_SOCKET_DIR env, the gms-intrapod-control mount, the DRA claim,
+// GMS_CHECKPOINT_DIR, the checkpoint-PVC mount) all remain — user fields layer
+// on top, not replace base, except for the explicit overrides Image and Command.
+//
+// Mirrors the merge pattern in dynamo.mergeFrontendSidecarDefaults: image and
+// command are full overrides when non-empty; envs use MergeEnvs (user wins on
+// name collision); volumeMounts append (operator mounts stay); envFromSecret is
+// appended.
+func applyGMSSidecarSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSSidecarSpec) corev1.Container {
+	if spec == nil {
+		return base
+	}
+	if spec.Image != "" {
+		base.Image = spec.Image
+	}
+	if len(spec.Command) > 0 {
+		base.Command = append([]string(nil), spec.Command...)
+	}
+	if spec.EnvFromSecret != nil && *spec.EnvFromSecret != "" {
+		base.EnvFrom = append(base.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: *spec.EnvFromSecret},
+			},
+		})
+	}
+	if len(spec.Envs) > 0 {
+		base.Env = mergeEnvVars(base.Env, spec.Envs)
+	}
+	if len(spec.VolumeMounts) > 0 {
+		base.VolumeMounts = append(base.VolumeMounts, spec.VolumeMounts...)
+	}
+	return base
+}
+
+func gmsCheckpointSpecLoader(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSSidecarSpec {
+	if cp == nil {
+		return nil
+	}
+	return cp.Loader
+}
+
+func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSSidecarSpec {
+	if cp == nil {
+		return nil
+	}
+	return cp.Saver
+}
+
+// mergeEnvVars mirrors dynamo.MergeEnvs but is local to this package to avoid
+// an import cycle (the dynamo package imports checkpoint). User-supplied vars
+// win on name collision, matching the semantic of the frontend-sidecar merge.
+func mergeEnvVars(base, overrides []corev1.EnvVar) []corev1.EnvVar {
+	envMap := make(map[string]corev1.EnvVar, len(base)+len(overrides))
+	for _, env := range base {
+		envMap[env.Name] = env
+	}
+	for _, env := range overrides {
+		envMap[env.Name] = env
+	}
+	merged := make([]corev1.EnvVar, 0, len(envMap))
+	for _, env := range envMap {
+		merged = append(merged, env)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Name < merged[j].Name
+	})
+	return merged
 }
 
 func resolveGMSArtifactDir(storage snapshotprotocol.Storage) string {

@@ -213,7 +213,7 @@ func injectCheckpointIntoPodSpec(
 		if err != nil {
 			return fmt.Errorf("gpuMemoryService enabled: %w", err)
 		}
-		EnsureGMSRestoreSidecars(podSpec, mainContainer, storage)
+		EnsureGMSRestoreSidecars(podSpec, mainContainer, storage, info.GPUMemoryService.Checkpoint)
 	}
 
 	return nil

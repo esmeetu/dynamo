@@ -134,7 +134,7 @@ func buildCheckpointJob(
 		if err != nil {
 			return nil, err
 		}
-		if err := checkpoint.EnsureGMSCheckpointJobSidecars(&podTemplate.Spec, mainContainer, storage); err != nil {
+		if err := checkpoint.EnsureGMSCheckpointJobSidecars(&podTemplate.Spec, mainContainer, storage, ckpt.Spec.GPUMemoryService.Checkpoint); err != nil {
 			return nil, err
 		}
 	}
