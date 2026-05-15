@@ -10786,6 +10786,499 @@ spec:
                     GPUMemoryService configures the GPU Memory Service (GMS) sidecar.
                     When enabled, a GMS sidecar is injected and GPU access is managed via DRA.
                   properties:
+                    checkpoint:
+                      description: |-
+                        Checkpoint configures user-supplied overrides for the GMS-aware
+                        checkpoint client sidecars (loader on restore targets, saver on
+                        checkpoint Jobs). Nil means the operator injects the default
+                        loader/saver containers unchanged. Setting Loader and/or Saver layers
+                        the user-supplied image/command/envs/volumeMounts on top of the
+                        operator-built defaults. Requires Enabled=true (enforced by webhook).
+                      properties:
+                        loader:
+                          description: |-
+                            Loader overrides for the gms-loader sidecar injected into restore-target
+                            pods. The container name stays operator-owned (gms-loader) so the
+                            idempotent strip/replace path keeps working.
+                          properties:
+                            command:
+                              description: |-
+                                Command is the full container argv. When non-empty it replaces the
+                                operator default (["python3", "-m", "gpu_memory_service.cli.snapshot.loader"]
+                                or ".saver") entirely; the operator never injects a hidden prefix. Per
+                                locked design choice C2 there is no separate Args field.
+                              items:
+                                type: string
+                              type: array
+                            envFromSecret:
+                              description: |-
+                                EnvFromSecret is an optional Secret name; all keys are exposed as
+                                environment variables via an envFrom source.
+                              type: string
+                            envs:
+                              description: |-
+                                Envs are additional environment variables. They are merged with (and
+                                may override) operator-set vars; GMS_SOCKET_DIR remains operator-owned.
+                              items:
+                                description: EnvVar represents an environment variable present in a Container.
+                                properties:
+                                  name:
+                                    description: |-
+                                      Name of the environment variable.
+                                      May consist of any printable ASCII characters except '='.
+                                    type: string
+                                  value:
+                                    description: |-
+                                      Variable references $(VAR_NAME) are expanded
+                                      using the previously defined environment variables in the container and
+                                      any service environment variables. If a variable cannot be resolved,
+                                      the reference in the input string will be unchanged. Double $$ are reduced
+                                      to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e.
+                                      "$$(VAR_NAME)" will produce the string literal "$(VAR_NAME)".
+                                      Escaped references will never be expanded, regardless of whether the variable
+                                      exists or not.
+                                      Defaults to "".
+                                    type: string
+                                  valueFrom:
+                                    description: Source for the environment variable's value. Cannot be used if value is not empty.
+                                    properties:
+                                      configMapKeyRef:
+                                        description: Selects a key of a ConfigMap.
+                                        properties:
+                                          key:
+                                            description: The key to select.
+                                            type: string
+                                          name:
+                                            default: ""
+                                            description: |-
+                                              Name of the referent.
+                                              This field is effectively required, but due to backwards compatibility is
+                                              allowed to be empty. Instances of this type with an empty value here are
+                                              almost certainly wrong.
+                                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                            type: string
+                                          optional:
+                                            description: Specify whether the ConfigMap or its key must be defined
+                                            type: boolean
+                                        required:
+                                          - key
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      fieldRef:
+                                        description: |-
+                                          Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
+                                          spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
+                                        properties:
+                                          apiVersion:
+                                            description: Version of the schema the FieldPath is written in terms of, defaults to "v1".
+                                            type: string
+                                          fieldPath:
+                                            description: Path of the field to select in the specified API version.
+                                            type: string
+                                        required:
+                                          - fieldPath
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      fileKeyRef:
+                                        description: |-
+                                          FileKeyRef selects a key of the env file.
+                                          Requires the EnvFiles feature gate to be enabled.
+                                        properties:
+                                          key:
+                                            description: |-
+                                              The key within the env file. An invalid key will prevent the pod from starting.
+                                              The keys defined within a source may consist of any printable ASCII characters except '='.
+                                              During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                                            type: string
+                                          optional:
+                                            default: false
+                                            description: |-
+                                              Specify whether the file or its key must be defined. If the file or key
+                                              does not exist, then the env var is not published.
+                                              If optional is set to true and the specified key does not exist,
+                                              the environment variable will not be set in the Pod's containers.
+
+                                              If optional is set to false and the specified key does not exist,
+                                              an error will be returned during Pod creation.
+                                            type: boolean
+                                          path:
+                                            description: |-
+                                              The path within the volume from which to select the file.
+                                              Must be relative and may not contain the '..' path or start with '..'.
+                                            type: string
+                                          volumeName:
+                                            description: The name of the volume mount containing the env file.
+                                            type: string
+                                        required:
+                                          - key
+                                          - path
+                                          - volumeName
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      resourceFieldRef:
+                                        description: |-
+                                          Selects a resource of the container: only resources limits and requests
+                                          (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.
+                                        properties:
+                                          containerName:
+                                            description: 'Container name: required for volumes, optional for env vars'
+                                            type: string
+                                          divisor:
+                                            anyOf:
+                                              - type: integer
+                                              - type: string
+                                            description: Specifies the output format of the exposed resources, defaults to "1"
+                                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                            x-kubernetes-int-or-string: true
+                                          resource:
+                                            description: 'Required: resource to select'
+                                            type: string
+                                        required:
+                                          - resource
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      secretKeyRef:
+                                        description: Selects a key of a secret in the pod's namespace
+                                        properties:
+                                          key:
+                                            description: The key of the secret to select from.  Must be a valid secret key.
+                                            type: string
+                                          name:
+                                            default: ""
+                                            description: |-
+                                              Name of the referent.
+                                              This field is effectively required, but due to backwards compatibility is
+                                              allowed to be empty. Instances of this type with an empty value here are
+                                              almost certainly wrong.
+                                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                            type: string
+                                          optional:
+                                            description: Specify whether the Secret or its key must be defined
+                                            type: boolean
+                                        required:
+                                          - key
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                    type: object
+                                required:
+                                  - name
+                                type: object
+                              type: array
+                            image:
+                              description: |-
+                                Image is the container image. When empty the operator default (the
+                                main container's image) is used.
+                              type: string
+                            volumeMounts:
+                              description: |-
+                                VolumeMounts are user-owned mounts (typically a PVC declared in
+                                extraPodSpec.podSpec.volumes or job.podSpec.volumes). They are appended
+                                to the operator's mounts, not replacing them.
+                              items:
+                                description: VolumeMount describes a mounting of a Volume within a container.
+                                properties:
+                                  mountPath:
+                                    description: |-
+                                      Path within the container at which the volume should be mounted.  Must
+                                      not contain ':'.
+                                    type: string
+                                  mountPropagation:
+                                    description: |-
+                                      mountPropagation determines how mounts are propagated from the host
+                                      to container and the other way around.
+                                      When not set, MountPropagationNone is used.
+                                      This field is beta in 1.10.
+                                      When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
+                                      (which defaults to None).
+                                    type: string
+                                  name:
+                                    description: This must match the Name of a Volume.
+                                    type: string
+                                  readOnly:
+                                    description: |-
+                                      Mounted read-only if true, read-write otherwise (false or unspecified).
+                                      Defaults to false.
+                                    type: boolean
+                                  recursiveReadOnly:
+                                    description: |-
+                                      RecursiveReadOnly specifies whether read-only mounts should be handled
+                                      recursively.
+
+                                      If ReadOnly is false, this field has no meaning and must be unspecified.
+
+                                      If ReadOnly is true, and this field is set to Disabled, the mount is not made
+                                      recursively read-only.  If this field is set to IfPossible, the mount is made
+                                      recursively read-only, if it is supported by the container runtime.  If this
+                                      field is set to Enabled, the mount is made recursively read-only if it is
+                                      supported by the container runtime, otherwise the pod will not be started and
+                                      an error will be generated to indicate the reason.
+
+                                      If this field is set to IfPossible or Enabled, MountPropagation must be set to
+                                      None (or be unspecified, which defaults to None).
+
+                                      If this field is not specified, it is treated as an equivalent of Disabled.
+                                    type: string
+                                  subPath:
+                                    description: |-
+                                      Path within the volume from which the container's volume should be mounted.
+                                      Defaults to "" (volume's root).
+                                    type: string
+                                  subPathExpr:
+                                    description: |-
+                                      Expanded path within the volume from which the container's volume should be mounted.
+                                      Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
+                                      Defaults to "" (volume's root).
+                                      SubPathExpr and SubPath are mutually exclusive.
+                                    type: string
+                                required:
+                                  - mountPath
+                                  - name
+                                type: object
+                              type: array
+                          type: object
+                        saver:
+                          description: |-
+                            Saver overrides for the gms-saver sidecar injected into checkpoint
+                            Jobs. The container name stays operator-owned (gms-saver). Not valid on
+                            a standalone DynamoCheckpoint's loader analog (Jobs only save); the
+                            webhook rejects checkpoint.loader on DynamoCheckpoint.
+                          properties:
+                            command:
+                              description: |-
+                                Command is the full container argv. When non-empty it replaces the
+                                operator default (["python3", "-m", "gpu_memory_service.cli.snapshot.loader"]
+                                or ".saver") entirely; the operator never injects a hidden prefix. Per
+                                locked design choice C2 there is no separate Args field.
+                              items:
+                                type: string
+                              type: array
+                            envFromSecret:
+                              description: |-
+                                EnvFromSecret is an optional Secret name; all keys are exposed as
+                                environment variables via an envFrom source.
+                              type: string
+                            envs:
+                              description: |-
+                                Envs are additional environment variables. They are merged with (and
+                                may override) operator-set vars; GMS_SOCKET_DIR remains operator-owned.
+                              items:
+                                description: EnvVar represents an environment variable present in a Container.
+                                properties:
+                                  name:
+                                    description: |-
+                                      Name of the environment variable.
+                                      May consist of any printable ASCII characters except '='.
+                                    type: string
+                                  value:
+                                    description: |-
+                                      Variable references $(VAR_NAME) are expanded
+                                      using the previously defined environment variables in the container and
+                                      any service environment variables. If a variable cannot be resolved,
+                                      the reference in the input string will be unchanged. Double $$ are reduced
+                                      to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e.
+                                      "$$(VAR_NAME)" will produce the string literal "$(VAR_NAME)".
+                                      Escaped references will never be expanded, regardless of whether the variable
+                                      exists or not.
+                                      Defaults to "".
+                                    type: string
+                                  valueFrom:
+                                    description: Source for the environment variable's value. Cannot be used if value is not empty.
+                                    properties:
+                                      configMapKeyRef:
+                                        description: Selects a key of a ConfigMap.
+                                        properties:
+                                          key:
+                                            description: The key to select.
+                                            type: string
+                                          name:
+                                            default: ""
+                                            description: |-
+                                              Name of the referent.
+                                              This field is effectively required, but due to backwards compatibility is
+                                              allowed to be empty. Instances of this type with an empty value here are
+                                              almost certainly wrong.
+                                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                            type: string
+                                          optional:
+                                            description: Specify whether the ConfigMap or its key must be defined
+                                            type: boolean
+                                        required:
+                                          - key
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      fieldRef:
+                                        description: |-
+                                          Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
+                                          spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
+                                        properties:
+                                          apiVersion:
+                                            description: Version of the schema the FieldPath is written in terms of, defaults to "v1".
+                                            type: string
+                                          fieldPath:
+                                            description: Path of the field to select in the specified API version.
+                                            type: string
+                                        required:
+                                          - fieldPath
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      fileKeyRef:
+                                        description: |-
+                                          FileKeyRef selects a key of the env file.
+                                          Requires the EnvFiles feature gate to be enabled.
+                                        properties:
+                                          key:
+                                            description: |-
+                                              The key within the env file. An invalid key will prevent the pod from starting.
+                                              The keys defined within a source may consist of any printable ASCII characters except '='.
+                                              During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                                            type: string
+                                          optional:
+                                            default: false
+                                            description: |-
+                                              Specify whether the file or its key must be defined. If the file or key
+                                              does not exist, then the env var is not published.
+                                              If optional is set to true and the specified key does not exist,
+                                              the environment variable will not be set in the Pod's containers.
+
+                                              If optional is set to false and the specified key does not exist,
+                                              an error will be returned during Pod creation.
+                                            type: boolean
+                                          path:
+                                            description: |-
+                                              The path within the volume from which to select the file.
+                                              Must be relative and may not contain the '..' path or start with '..'.
+                                            type: string
+                                          volumeName:
+                                            description: The name of the volume mount containing the env file.
+                                            type: string
+                                        required:
+                                          - key
+                                          - path
+                                          - volumeName
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      resourceFieldRef:
+                                        description: |-
+                                          Selects a resource of the container: only resources limits and requests
+                                          (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.
+                                        properties:
+                                          containerName:
+                                            description: 'Container name: required for volumes, optional for env vars'
+                                            type: string
+                                          divisor:
+                                            anyOf:
+                                              - type: integer
+                                              - type: string
+                                            description: Specifies the output format of the exposed resources, defaults to "1"
+                                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                            x-kubernetes-int-or-string: true
+                                          resource:
+                                            description: 'Required: resource to select'
+                                            type: string
+                                        required:
+                                          - resource
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      secretKeyRef:
+                                        description: Selects a key of a secret in the pod's namespace
+                                        properties:
+                                          key:
+                                            description: The key of the secret to select from.  Must be a valid secret key.
+                                            type: string
+                                          name:
+                                            default: ""
+                                            description: |-
+                                              Name of the referent.
+                                              This field is effectively required, but due to backwards compatibility is
+                                              allowed to be empty. Instances of this type with an empty value here are
+                                              almost certainly wrong.
+                                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                            type: string
+                                          optional:
+                                            description: Specify whether the Secret or its key must be defined
+                                            type: boolean
+                                        required:
+                                          - key
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                    type: object
+                                required:
+                                  - name
+                                type: object
+                              type: array
+                            image:
+                              description: |-
+                                Image is the container image. When empty the operator default (the
+                                main container's image) is used.
+                              type: string
+                            volumeMounts:
+                              description: |-
+                                VolumeMounts are user-owned mounts (typically a PVC declared in
+                                extraPodSpec.podSpec.volumes or job.podSpec.volumes). They are appended
+                                to the operator's mounts, not replacing them.
+                              items:
+                                description: VolumeMount describes a mounting of a Volume within a container.
+                                properties:
+                                  mountPath:
+                                    description: |-
+                                      Path within the container at which the volume should be mounted.  Must
+                                      not contain ':'.
+                                    type: string
+                                  mountPropagation:
+                                    description: |-
+                                      mountPropagation determines how mounts are propagated from the host
+                                      to container and the other way around.
+                                      When not set, MountPropagationNone is used.
+                                      This field is beta in 1.10.
+                                      When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
+                                      (which defaults to None).
+                                    type: string
+                                  name:
+                                    description: This must match the Name of a Volume.
+                                    type: string
+                                  readOnly:
+                                    description: |-
+                                      Mounted read-only if true, read-write otherwise (false or unspecified).
+                                      Defaults to false.
+                                    type: boolean
+                                  recursiveReadOnly:
+                                    description: |-
+                                      RecursiveReadOnly specifies whether read-only mounts should be handled
+                                      recursively.
+
+                                      If ReadOnly is false, this field has no meaning and must be unspecified.
+
+                                      If ReadOnly is true, and this field is set to Disabled, the mount is not made
+                                      recursively read-only.  If this field is set to IfPossible, the mount is made
+                                      recursively read-only, if it is supported by the container runtime.  If this
+                                      field is set to Enabled, the mount is made recursively read-only if it is
+                                      supported by the container runtime, otherwise the pod will not be started and
+                                      an error will be generated to indicate the reason.
+
+                                      If this field is set to IfPossible or Enabled, MountPropagation must be set to
+                                      None (or be unspecified, which defaults to None).
+
+                                      If this field is not specified, it is treated as an equivalent of Disabled.
+                                    type: string
+                                  subPath:
+                                    description: |-
+                                      Path within the volume from which the container's volume should be mounted.
+                                      Defaults to "" (volume's root).
+                                    type: string
+                                  subPathExpr:
+                                    description: |-
+                                      Expanded path within the volume from which the container's volume should be mounted.
+                                      Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
+                                      Defaults to "" (volume's root).
+                                      SubPathExpr and SubPath are mutually exclusive.
+                                    type: string
+                                required:
+                                  - mountPath
+                                  - name
+                                type: object
+                              type: array
+                          type: object
+                      type: object
                     deviceClassName:
                       default: gpu.nvidia.com
                       description: DeviceClassName is the DRA DeviceClass to request GPUs from.

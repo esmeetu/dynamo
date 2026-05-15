@@ -189,6 +189,78 @@ type GPUMemoryServiceSpec struct {
 	// +kubebuilder:default="gpu.nvidia.com"
 	// +optional
 	DeviceClassName string `json:"deviceClassName,omitempty"`
+	// Checkpoint configures user-supplied overrides for the GMS-aware
+	// checkpoint client sidecars (loader on restore targets, saver on
+	// checkpoint Jobs). Nil means the operator injects the default
+	// loader/saver containers unchanged. Setting Loader and/or Saver layers
+	// the user-supplied image/command/envs/volumeMounts on top of the
+	// operator-built defaults. Requires Enabled=true (enforced by webhook).
+	// +optional
+	Checkpoint *GMSCheckpointSpec `json:"checkpoint,omitempty"`
+}
+
+// GMSCheckpointSpec configures user-supplied overrides for the GMS loader
+// (restore-target) and saver (checkpoint-Job) sidecars. Each field is
+// independent and opt-in: nil means "use the operator default sidecar
+// unchanged"; presence triggers the merge path that overlays user fields on
+// top of the operator-built container.
+type GMSCheckpointSpec struct {
+	// Loader overrides for the gms-loader sidecar injected into restore-target
+	// pods. The container name stays operator-owned (gms-loader) so the
+	// idempotent strip/replace path keeps working.
+	// +optional
+	Loader *GMSSidecarSpec `json:"loader,omitempty"`
+	// Saver overrides for the gms-saver sidecar injected into checkpoint
+	// Jobs. The container name stays operator-owned (gms-saver). Not valid on
+	// a standalone DynamoCheckpoint's loader analog (Jobs only save); the
+	// webhook rejects checkpoint.loader on DynamoCheckpoint.
+	// +optional
+	Saver *GMSSidecarSpec `json:"saver,omitempty"`
+}
+
+// GMSSidecarSpec configures a single GMS client sidecar (loader or saver).
+// Every field is optional; when nil/empty the operator's default is used.
+// The container name is operator-owned (gms-loader / gms-saver) and is not
+// exposed here. Operator-set environment variables (GMS_SOCKET_DIR, the
+// shared-volume mount, the DRA claim) are always preserved; user fields
+// layer on top via merge:
+//   - Image: replaces base image when non-empty.
+//   - Command: replaces base argv when non-empty (full replacement, no
+//     hidden "python3 -m" prefix); per locked design choice C2 there is no
+//     separate Args field.
+//   - Envs: merged with (and may override) operator-set vars except those
+//     required for GMS UDS connectivity.
+//   - EnvFromSecret: appended as an envFrom source.
+//   - VolumeMounts: appended to (not replacing) operator-set mounts so the
+//     gms-intrapod-control mount is preserved.
+type GMSSidecarSpec struct {
+	// Image is the container image. When empty the operator default (the
+	// main container's image) is used.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Command is the full container argv. When non-empty it replaces the
+	// operator default (["python3", "-m", "gpu_memory_service.cli.snapshot.loader"]
+	// or ".saver") entirely; the operator never injects a hidden prefix. Per
+	// locked design choice C2 there is no separate Args field.
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Envs are additional environment variables. They are merged with (and
+	// may override) operator-set vars; GMS_SOCKET_DIR remains operator-owned.
+	// +optional
+	Envs []corev1.EnvVar `json:"envs,omitempty"`
+
+	// EnvFromSecret is an optional Secret name; all keys are exposed as
+	// environment variables via an envFrom source.
+	// +optional
+	EnvFromSecret *string `json:"envFromSecret,omitempty"`
+
+	// VolumeMounts are user-owned mounts (typically a PVC declared in
+	// extraPodSpec.podSpec.volumes or job.podSpec.volumes). They are appended
+	// to the operator's mounts, not replacing them.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }
 
 // FailoverSpec configures active-passive failover for a worker component.
