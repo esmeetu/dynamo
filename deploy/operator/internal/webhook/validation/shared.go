@@ -145,6 +145,11 @@ func (v *SharedSpecValidator) Validate(ctx context.Context) (admission.Warnings,
 		return nil, err
 	}
 
+	// D3: checkpoint.{loader,saver} requires gpuMemoryService.enabled=true.
+	if err := v.validateGMSCheckpointSidecars(); err != nil {
+		return nil, err
+	}
+
 	return warnings, nil
 }
 
@@ -418,6 +423,30 @@ func (v *SharedSpecValidator) validateSnapshotWithGPUMemoryService() error {
 		fmt.Sprintf("%s.checkpoint", v.fieldPath),
 		v.spec.Checkpoint != nil && v.spec.Checkpoint.Enabled,
 		v.spec.GPUMemoryService)
+}
+
+// validateGMSCheckpointSidecars enforces locked design rule D3: a user-supplied
+// gpuMemoryService.checkpoint.{loader,saver} override only makes sense when
+// gpuMemoryService.enabled=true, because the operator only injects the GMS
+// loader/saver sidecars on the GMS-enabled path. This composes with (does not
+// replace) the GMS snapshot feature-gate check in
+// validateSnapshotWithGPUMemoryService: the gate answers "is this combination
+// admissible at all?" while D3 answers "given it is admissible, does the spec
+// internally make sense?".
+func (v *SharedSpecValidator) validateGMSCheckpointSidecars() error {
+	if v.spec.GPUMemoryService == nil || v.spec.GPUMemoryService.Checkpoint == nil {
+		return nil
+	}
+	cp := v.spec.GPUMemoryService.Checkpoint
+	if cp.Loader == nil && cp.Saver == nil {
+		return nil
+	}
+	if !v.spec.GPUMemoryService.Enabled {
+		return fmt.Errorf(
+			"%s.gpuMemoryService.checkpoint requires gpuMemoryService.enabled=true",
+			v.fieldPath)
+	}
+	return nil
 }
 
 // validateServiceAnnotations validates known annotations on the service-level spec.

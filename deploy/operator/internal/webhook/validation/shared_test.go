@@ -288,6 +288,76 @@ func TestSharedSpecValidator_Validate(t *testing.T) {
 			wantErr:             false,
 		},
 		{
+			name: "gpuMemoryService.checkpoint without loader/saver is accepted",
+			spec: &nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{
+				ComponentType: consts.ComponentTypeWorker,
+				Resources:     workerGPU,
+				GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
+					Enabled:    true,
+					Mode:       nvidiacomv1alpha1.GMSModeIntraPod,
+					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{},
+				},
+			},
+			fieldPath:           "spec.services[worker]",
+			calculatedNamespace: "default-my-dgd",
+			wantErr:             false,
+		},
+		{
+			name: "gpuMemoryService.checkpoint.loader with enabled=true is accepted (D3)",
+			spec: &nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{
+				ComponentType: consts.ComponentTypeWorker,
+				Resources:     workerGPU,
+				GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
+					Enabled: true,
+					Mode:    nvidiacomv1alpha1.GMSModeIntraPod,
+					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
+						Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+							Image: "my-loader:latest",
+						},
+					},
+				},
+			},
+			fieldPath:           "spec.services[worker]",
+			calculatedNamespace: "default-my-dgd",
+			wantErr:             false,
+		},
+		{
+			name: "gpuMemoryService.checkpoint.loader without enabled=true is rejected (D3)",
+			spec: &nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{
+				ComponentType: consts.ComponentTypeWorker,
+				GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
+					Enabled: false,
+					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
+						Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+							Image: "my-loader:latest",
+						},
+					},
+				},
+			},
+			fieldPath:           "spec.services[worker]",
+			calculatedNamespace: "default-my-dgd",
+			wantErr:             true,
+			errMsg:              "spec.services[worker].gpuMemoryService.checkpoint requires gpuMemoryService.enabled=true",
+		},
+		{
+			name: "gpuMemoryService.checkpoint.saver without enabled=true is rejected (D3)",
+			spec: &nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{
+				ComponentType: consts.ComponentTypeWorker,
+				GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
+					Enabled: false,
+					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
+						Saver: &nvidiacomv1alpha1.GMSSidecarSpec{
+							Command: []string{"python3", "-m", "my.saver"},
+						},
+					},
+				},
+			},
+			fieldPath:           "spec.services[worker]",
+			calculatedNamespace: "default-my-dgd",
+			wantErr:             true,
+			errMsg:              "spec.services[worker].gpuMemoryService.checkpoint requires gpuMemoryService.enabled=true",
+		},
+		{
 			name: "frontendSidecar with no extraPodSpec containers is valid",
 			spec: &nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{
 				FrontendSidecar: &nvidiacomv1alpha1.FrontendSidecarSpec{

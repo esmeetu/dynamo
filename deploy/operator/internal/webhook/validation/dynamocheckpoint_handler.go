@@ -50,7 +50,7 @@ func (h *DynamoCheckpointHandler) ValidateCreate(ctx context.Context, obj runtim
 		return nil, err
 	}
 	logger.Info("validate create", "name", ckpt.Name, "namespace", ckpt.Namespace)
-	return nil, validateDynamoCheckpointGMSSnapshot(ckpt)
+	return nil, validateDynamoCheckpoint(ckpt)
 }
 
 func (h *DynamoCheckpointHandler) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
@@ -63,7 +63,7 @@ func (h *DynamoCheckpointHandler) ValidateUpdate(ctx context.Context, oldObj, ne
 	if !ckpt.DeletionTimestamp.IsZero() {
 		return nil, nil
 	}
-	return nil, validateDynamoCheckpointGMSSnapshot(ckpt)
+	return nil, validateDynamoCheckpoint(ckpt)
 }
 
 func (h *DynamoCheckpointHandler) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
@@ -88,6 +88,37 @@ func (h *DynamoCheckpointHandler) RegisterWithManager(mgr manager.Manager) error
 func validateDynamoCheckpointGMSSnapshot(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
 	// A DynamoCheckpoint is itself a Snapshot resource; service specs pass checkpoint.enabled instead.
 	return checkpoint.ValidateGMSSnapshotGate("spec.gpuMemoryService", true, ckpt.Spec.GPUMemoryService)
+}
+
+// validateDynamoCheckpointCheckpointSidecars enforces DynamoCheckpoint-specific
+// rules for the GMSCheckpointSpec overrides:
+//
+//  1. checkpoint.loader is rejected on a DynamoCheckpoint — Jobs only save;
+//     restore happens on worker pods reconciled from a service's
+//     ServiceCheckpointConfig, never on the DynamoCheckpoint Job itself.
+//  2. checkpoint.{loader,saver} require gpuMemoryService.enabled=true (locked
+//     design rule D3, also enforced on DGD via SharedSpecValidator).
+func validateDynamoCheckpointCheckpointSidecars(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
+	if ckpt.Spec.GPUMemoryService == nil || ckpt.Spec.GPUMemoryService.Checkpoint == nil {
+		return nil
+	}
+	cp := ckpt.Spec.GPUMemoryService.Checkpoint
+	if cp.Loader != nil {
+		return fmt.Errorf(
+			"spec.gpuMemoryService.checkpoint.loader is not valid on a DynamoCheckpoint (Jobs only save; use checkpoint.saver, or set checkpoint.loader on the consuming service)")
+	}
+	if cp.Saver != nil && !ckpt.Spec.GPUMemoryService.Enabled {
+		return fmt.Errorf(
+			"spec.gpuMemoryService.checkpoint.saver requires gpuMemoryService.enabled=true")
+	}
+	return nil
+}
+
+func validateDynamoCheckpoint(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
+	if err := validateDynamoCheckpointGMSSnapshot(ckpt); err != nil {
+		return err
+	}
+	return validateDynamoCheckpointCheckpointSidecars(ckpt)
 }
 
 func castToDynamoCheckpoint(obj runtime.Object) (*nvidiacomv1alpha1.DynamoCheckpoint, error) {
