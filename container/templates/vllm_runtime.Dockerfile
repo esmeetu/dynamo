@@ -173,7 +173,6 @@ RUN uv pip uninstall -y triton && \
 {% endif %}
 
 {% endif %}
-{% endif %}
 
 {% if device == "cuda" and cuda_version == "12.9" %}
 # TODO: Remove when the next vLLM release line is adopted. The v0.20.1-cu129
