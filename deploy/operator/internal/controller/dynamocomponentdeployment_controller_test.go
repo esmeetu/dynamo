@@ -1779,7 +1779,7 @@ func TestDynamoComponentDeploymentReconciler_generatePodTemplateSpec_RestoreLabe
 		}
 	})
 
-	t.Run("ready gms checkpoint injects gms restore sidecars", func(t *testing.T) {
+	t.Run("ready gms checkpoint injects restore clients", func(t *testing.T) {
 		t.Setenv(commonconsts.DynamoOperatorAllowGMSSnapshotEnvVar, "1")
 		identity := v1alpha1.DynamoCheckpointIdentity{Model: "test-model", BackendFramework: "vllm"}
 		checkpointName, err := checkpoint.ComputeIdentityHash(identity)
@@ -1848,7 +1848,7 @@ func TestDynamoComponentDeploymentReconciler_generatePodTemplateSpec_RestoreLabe
 		if gmsServer.StartupProbe != nil {
 			t.Fatalf("expected restore gms-server to have no StartupProbe")
 		}
-		// gms-loader is a regular sidecar (no container-level RestartPolicy override).
+		// gms-loader is a regular container (no container-level RestartPolicy override).
 		if loader.RestartPolicy != nil {
 			t.Fatalf("expected restore gms-loader to have no container-level RestartPolicy, got %#v", loader.RestartPolicy)
 		}
@@ -1869,7 +1869,7 @@ func TestDynamoComponentDeploymentReconciler_generatePodTemplateSpec_RestoreLabe
 		dcd.Spec.Experimental.GPUMemoryService = &v1beta1.GPUMemoryServiceSpec{
 			Mode: v1beta1.GMSModeIntraPod,
 			Checkpoint: &v1beta1.GMSCheckpointSpec{
-				Loader: &v1beta1.GMSSidecarSpec{
+				Loader: &v1beta1.GMSCheckpointClientSpec{
 					Image:   "custom-loader:latest",
 					Command: []string{"/bin/custom-loader"},
 				},

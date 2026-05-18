@@ -776,8 +776,8 @@ func TestDynamoGraphDeploymentReconciler_createCheckpointCR_preservesGMSSaverOve
 			Enabled: true,
 			Mode:    v1alpha1.GMSModeIntraPod,
 			Checkpoint: &v1alpha1.GMSCheckpointSpec{
-				Loader: &v1alpha1.GMSSidecarSpec{Image: "custom-loader:latest"},
-				Saver: &v1alpha1.GMSSidecarSpec{
+				Loader: &v1alpha1.GMSCheckpointClientSpec{Image: "custom-loader:latest"},
+				Saver: &v1alpha1.GMSCheckpointClientSpec{
 					Image:   "custom-saver:latest",
 					Command: []string{"/bin/custom-saver"},
 				},
@@ -1057,11 +1057,11 @@ func TestDynamoGraphDeploymentReconciler_reconcileCheckpoints_overlaysServiceGMS
 						Enabled: true,
 						Mode:    v1alpha1.GMSModeIntraPod,
 						Checkpoint: &v1alpha1.GMSCheckpointSpec{
-							Loader: &v1alpha1.GMSSidecarSpec{
+							Loader: &v1alpha1.GMSCheckpointClientSpec{
 								Image:   "custom-loader:latest",
 								Command: []string{"/bin/custom-loader"},
 							},
-							Saver: &v1alpha1.GMSSidecarSpec{Image: "service-saver-ignored:latest"},
+							Saver: &v1alpha1.GMSCheckpointClientSpec{Image: "service-saver-ignored:latest"},
 						},
 					},
 					Checkpoint: &v1alpha1.ServiceCheckpointConfig{

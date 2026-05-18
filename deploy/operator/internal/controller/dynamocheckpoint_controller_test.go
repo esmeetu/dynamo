@@ -326,7 +326,7 @@ func TestBuildCheckpointJobWrapsWithCudaCheckpointForMultiGPU(t *testing.T) {
 	}
 }
 
-func TestBuildCheckpointJobAddsGMSSidecars(t *testing.T) {
+func TestBuildCheckpointJobAddsGMSCheckpointClient(t *testing.T) {
 	s := checkpointTestScheme()
 	ckpt := makeTestCheckpoint(nvidiacomv1alpha1.DynamoCheckpointPhasePending)
 	ckpt.Spec.GPUMemoryService = &nvidiacomv1alpha1.GPUMemoryServiceSpec{Enabled: true}

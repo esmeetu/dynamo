@@ -189,29 +189,29 @@ type GPUMemoryServiceSpec struct {
 	// +kubebuilder:default="gpu.nvidia.com"
 	// +optional
 	DeviceClassName string `json:"deviceClassName,omitempty"`
-	// Checkpoint configures optional GMS checkpoint sidecar overrides.
+	// Checkpoint configures optional GMS checkpoint client overrides.
 	// Loader applies to restore pods; Saver applies to checkpoint Jobs.
 	// Requires Enabled=true (enforced by webhook).
 	// +optional
 	Checkpoint *GMSCheckpointSpec `json:"checkpoint,omitempty"`
 }
 
-// GMSCheckpointSpec configures optional GMS loader/saver sidecar overrides.
+// GMSCheckpointSpec configures optional GMS checkpoint client overrides.
 // Nil fields leave the operator defaults unchanged.
 type GMSCheckpointSpec struct {
-	// Loader overrides the gms-loader sidecar injected into restore pods.
+	// Loader configures the client that loads checkpoint artifacts on restore.
 	// +optional
-	Loader *GMSSidecarSpec `json:"loader,omitempty"`
-	// Saver overrides the gms-saver sidecar injected into checkpoint Jobs.
+	Loader *GMSCheckpointClientSpec `json:"loader,omitempty"`
+	// Saver configures the client that saves checkpoint artifacts in Jobs.
 	// +optional
-	Saver *GMSSidecarSpec `json:"saver,omitempty"`
+	Saver *GMSCheckpointClientSpec `json:"saver,omitempty"`
 }
 
-// GMSSidecarSpec configures one GMS client sidecar. Empty fields keep the
-// operator default. Image and Command override; Envs merge; EnvFromSecret and
-// VolumeMounts append. The container name and GMS socket wiring stay managed
-// by the operator.
-type GMSSidecarSpec struct {
+// GMSCheckpointClientSpec configures user-controlled fields for a GMS
+// checkpoint client container. Empty fields keep operator defaults. Image and
+// Command override; Envs merge; EnvFromSecret and VolumeMounts append.
+// Container name, placement, and GMS wiring are operator-managed.
+type GMSCheckpointClientSpec struct {
 	// Image is the container image. When empty the operator default (the
 	// main container's image) is used.
 	// +optional

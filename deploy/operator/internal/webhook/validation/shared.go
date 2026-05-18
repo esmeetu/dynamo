@@ -146,7 +146,7 @@ func (v *SharedSpecValidator) Validate(ctx context.Context) (admission.Warnings,
 	}
 
 	// D3: checkpoint.{loader,saver} requires gpuMemoryService.enabled=true.
-	if err := v.validateGMSCheckpointSidecars(); err != nil {
+	if err := v.validateGMSCheckpointClients(); err != nil {
 		return nil, err
 	}
 
@@ -425,9 +425,9 @@ func (v *SharedSpecValidator) validateSnapshotWithGPUMemoryService() error {
 		v.spec.GPUMemoryService)
 }
 
-// validateGMSCheckpointSidecars requires loader/saver overrides to be on a
+// validateGMSCheckpointClients requires loader/saver overrides to be on a
 // GMS-enabled service. The GMS snapshot feature gate is checked separately.
-func (v *SharedSpecValidator) validateGMSCheckpointSidecars() error {
+func (v *SharedSpecValidator) validateGMSCheckpointClients() error {
 	if v.spec.GPUMemoryService == nil || v.spec.GPUMemoryService.Checkpoint == nil {
 		return nil
 	}

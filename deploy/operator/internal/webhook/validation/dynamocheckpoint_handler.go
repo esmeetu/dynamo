@@ -90,9 +90,9 @@ func validateDynamoCheckpointGMSSnapshot(ckpt *nvidiacomv1alpha1.DynamoCheckpoin
 	return checkpoint.ValidateGMSSnapshotGate("spec.gpuMemoryService", true, ckpt.Spec.GPUMemoryService)
 }
 
-// validateDynamoCheckpointCheckpointSidecars enforces save-side checkpoint rules:
+// validateDynamoCheckpointCheckpointClients enforces save-side checkpoint rules:
 // loader is invalid on a DynamoCheckpoint, and saver requires GMS enabled.
-func validateDynamoCheckpointCheckpointSidecars(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
+func validateDynamoCheckpointCheckpointClients(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
 	if ckpt.Spec.GPUMemoryService == nil || ckpt.Spec.GPUMemoryService.Checkpoint == nil {
 		return nil
 	}
@@ -112,7 +112,7 @@ func validateDynamoCheckpoint(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
 	if err := validateDynamoCheckpointGMSSnapshot(ckpt); err != nil {
 		return err
 	}
-	return validateDynamoCheckpointCheckpointSidecars(ckpt)
+	return validateDynamoCheckpointCheckpointClients(ckpt)
 }
 
 func castToDynamoCheckpoint(obj runtime.Object) (*nvidiacomv1alpha1.DynamoCheckpoint, error) {

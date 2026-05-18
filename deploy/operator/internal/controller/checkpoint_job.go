@@ -76,7 +76,7 @@ func buildCheckpointJob(
 		podTemplate.Annotations = make(map[string]string)
 	}
 	// Checkpoint Jobs always capture exactly the main container. Other
-	// containers in the pod template (e.g. GMS saver sidecars the operator
+	// containers in the pod template (e.g. GMS saver clients the operator
 	// adds below) are preserved but not checkpointed. The annotation is
 	// the contract the snapshot-agent reads.
 	podTemplate.Annotations[snapshotprotocol.TargetContainersAnnotation] = snapshotprotocol.FormatTargetContainers([]string{consts.MainContainerName})

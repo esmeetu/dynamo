@@ -603,14 +603,14 @@ func TestDGD_RoundTrip_Experimental(t *testing.T) {
 							Mode:            v1beta1.GMSModeIntraPod,
 							DeviceClassName: "gpu.nvidia.com",
 							Checkpoint: &v1beta1.GMSCheckpointSpec{
-								Loader: &v1beta1.GMSSidecarSpec{
+								Loader: &v1beta1.GMSCheckpointClientSpec{
 									Image:         "custom-loader:latest",
 									Command:       []string{"/bin/custom-loader"},
 									Envs:          []corev1.EnvVar{{Name: "LOAD_ENV", Value: "1"}},
 									EnvFromSecret: ptr.To("loader-secret"),
 									VolumeMounts:  []corev1.VolumeMount{{Name: "loader-vol", MountPath: "/loader"}},
 								},
-								Saver: &v1beta1.GMSSidecarSpec{
+								Saver: &v1beta1.GMSCheckpointClientSpec{
 									Image:         "custom-saver:latest",
 									Command:       []string{"/bin/custom-saver"},
 									Envs:          []corev1.EnvVar{{Name: "SAVE_ENV", Value: "1"}},
@@ -649,14 +649,14 @@ func TestDGD_FromV1alpha1_GMSCheckpointSpecRoundTripsThroughHub(t *testing.T) {
 						Mode:            GMSModeIntraPod,
 						DeviceClassName: "gpu.nvidia.com/h100",
 						Checkpoint: &GMSCheckpointSpec{
-							Loader: &GMSSidecarSpec{
+							Loader: &GMSCheckpointClientSpec{
 								Image:         "loader:latest",
 								Command:       []string{"custom-loader"},
 								Envs:          []corev1.EnvVar{{Name: "LOAD_ENV", Value: "1"}},
 								EnvFromSecret: ptr.To("loader-secret"),
 								VolumeMounts:  []corev1.VolumeMount{{Name: "loader-vol", MountPath: "/loader"}},
 							},
-							Saver: &GMSSidecarSpec{
+							Saver: &GMSCheckpointClientSpec{
 								Image:         "saver:latest",
 								Command:       []string{"custom-saver"},
 								Envs:          []corev1.EnvVar{{Name: "SAVE_ENV", Value: "1"}},

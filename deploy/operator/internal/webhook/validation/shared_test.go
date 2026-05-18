@@ -311,7 +311,7 @@ func TestSharedSpecValidator_Validate(t *testing.T) {
 					Enabled: true,
 					Mode:    nvidiacomv1alpha1.GMSModeIntraPod,
 					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-						Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+						Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 							Image: "my-loader:latest",
 						},
 					},
@@ -328,7 +328,7 @@ func TestSharedSpecValidator_Validate(t *testing.T) {
 				GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 					Enabled: false,
 					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-						Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+						Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 							Image: "my-loader:latest",
 						},
 					},
@@ -346,7 +346,7 @@ func TestSharedSpecValidator_Validate(t *testing.T) {
 				GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 					Enabled: false,
 					Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-						Saver: &nvidiacomv1alpha1.GMSSidecarSpec{
+						Saver: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 							Command: []string{"python3", "-m", "my.saver"},
 						},
 					},

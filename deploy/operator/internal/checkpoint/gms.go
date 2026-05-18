@@ -55,7 +55,7 @@ func EnsureGMSRestoreSidecars(
 	loader := gms.Container(GMSLoaderContainer, gmsCheckpointLoaderModule, mainContainer.Image)
 	loader.VolumeMounts = append(loader.VolumeMounts, corev1.VolumeMount{Name: snapshotprotocol.CheckpointVolumeName, MountPath: storage.BasePath})
 	loader.Env = append(loader.Env, corev1.EnvVar{Name: envCheckpointDir, Value: resolveGMSArtifactDir(storage)})
-	loader = applyGMSSidecarSpec(loader, gmsCheckpointSpecLoader(checkpointSpec))
+	loader = applyGMSCheckpointClientSpec(loader, gmsCheckpointSpecLoader(checkpointSpec))
 	podSpec.Containers = append(podSpec.Containers, loader)
 }
 
@@ -74,7 +74,7 @@ func EnsureGMSCheckpointJobSidecars(
 		return nil
 	}
 	if len(mainContainer.Resources.Claims) == 0 {
-		return fmt.Errorf("gms sidecars require main container resource claims (DRA must be enabled)")
+		return fmt.Errorf("gms checkpoint clients require main container resource claims (DRA must be enabled)")
 	}
 	if storage.PVCName == "" || storage.BasePath == "" || storage.Location == "" {
 		return fmt.Errorf("gms checkpoint jobs require resolved checkpoint storage")
@@ -88,15 +88,15 @@ func EnsureGMSCheckpointJobSidecars(
 	saver := gms.Container(GMSSaverContainer, gmsCheckpointSaverModule, mainContainer.Image)
 	saver.VolumeMounts = append(saver.VolumeMounts, corev1.VolumeMount{Name: snapshotprotocol.CheckpointVolumeName, MountPath: storage.BasePath})
 	saver.Env = append(saver.Env, corev1.EnvVar{Name: envCheckpointDir, Value: gmsArtifactDir})
-	saver = applyGMSSidecarSpec(saver, gmsCheckpointSpecSaver(checkpointSpec))
+	saver = applyGMSCheckpointClientSpec(saver, gmsCheckpointSpecSaver(checkpointSpec))
 	podSpec.Containers = append(podSpec.Containers, saver)
 	return nil
 }
 
-// applyGMSSidecarSpec layers optional user fields onto the default GMS client
+// applyGMSCheckpointClientSpec layers optional user fields onto the default GMS client
 // container. Image and Command override; Env merges except GMS_SOCKET_DIR;
 // EnvFromSecret and VolumeMounts append.
-func applyGMSSidecarSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSSidecarSpec) corev1.Container {
+func applyGMSCheckpointClientSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSCheckpointClientSpec) corev1.Container {
 	if spec == nil {
 		return base
 	}
@@ -122,14 +122,14 @@ func applyGMSSidecarSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSSidec
 	return base
 }
 
-func gmsCheckpointSpecLoader(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSSidecarSpec {
+func gmsCheckpointSpecLoader(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSCheckpointClientSpec {
 	if cp == nil {
 		return nil
 	}
 	return cp.Loader
 }
 
-func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSSidecarSpec {
+func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSCheckpointClientSpec {
 	if cp == nil {
 		return nil
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/consts"
 )
 
-func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
+func TestValidateDynamoCheckpointCheckpointClients(t *testing.T) {
 	cases := []struct {
 		name      string
 		ckpt      *nvidiacomv1alpha1.DynamoCheckpoint
@@ -43,7 +43,7 @@ func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: true,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Saver: &nvidiacomv1alpha1.GMSSidecarSpec{
+							Saver: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 								Image: "my-saver:latest",
 							},
 						},
@@ -59,7 +59,7 @@ func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: true,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+							Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 								Image: "my-loader:latest",
 							},
 						},
@@ -76,8 +76,8 @@ func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: true,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Loader: &nvidiacomv1alpha1.GMSSidecarSpec{Image: "my-loader:latest"},
-							Saver:  &nvidiacomv1alpha1.GMSSidecarSpec{Image: "my-saver:latest"},
+							Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "my-loader:latest"},
+							Saver:  &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "my-saver:latest"},
 						},
 					},
 				},
@@ -92,7 +92,7 @@ func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: false,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Saver: &nvidiacomv1alpha1.GMSSidecarSpec{Image: "my-saver:latest"},
+							Saver: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "my-saver:latest"},
 						},
 					},
 				},
@@ -104,7 +104,7 @@ func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateDynamoCheckpointCheckpointSidecars(tc.ckpt)
+			err := validateDynamoCheckpointCheckpointClients(tc.ckpt)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tc.errSubstr)
@@ -122,10 +122,10 @@ func TestValidateDynamoCheckpointCheckpointSidecars(t *testing.T) {
 }
 
 // TestValidateDynamoCheckpoint_Composition covers that validateDynamoCheckpoint
-// chains the GMS snapshot feature-gate check with the sidecar rules. We use
+// chains the GMS snapshot feature-gate check with the client rules. We use
 // the env var consts.DynamoOperatorAllowGMSSnapshotEnvVar to enable the gate;
 // without it the GMS+snapshot combination is rejected upstream and the more
-// specific sidecar rule never runs.
+// specific client rule never runs.
 func TestValidateDynamoCheckpoint_Composition(t *testing.T) {
 	t.Setenv(consts.DynamoOperatorAllowGMSSnapshotEnvVar, "1")
 
@@ -134,7 +134,7 @@ func TestValidateDynamoCheckpoint_Composition(t *testing.T) {
 			GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 				Enabled: true,
 				Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-					Loader: &nvidiacomv1alpha1.GMSSidecarSpec{Image: "loader:latest"},
+					Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "loader:latest"},
 				},
 			},
 		},

@@ -602,7 +602,7 @@ func TestInjectCheckpointIntoPodSpec(t *testing.T) {
 		assert.Equal(t, "/snapshots", mounts[snapshotprotocol.CheckpointVolumeName])
 	})
 
-	t.Run("ready gms checkpoint injects restore sidecars and loader mount", func(t *testing.T) {
+	t.Run("ready gms checkpoint injects restore clients and loader mount", func(t *testing.T) {
 		podSpec := testPodSpec()
 		podSpec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
 		info := &CheckpointInfo{Enabled: true, Ready: true, Hash: testHash, GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{Enabled: true}}
@@ -613,7 +613,7 @@ func TestInjectCheckpointIntoPodSpec(t *testing.T) {
 		gmsServer := findContainer(podSpec, gms.ServerContainerName)
 		require.NotNil(t, gmsServer, "gms-server is a native sidecar (init+restartPolicy=Always)")
 		loader := findContainer(podSpec, GMSLoaderContainer)
-		require.NotNil(t, loader, "gms-loader is a regular sidecar")
+		require.NotNil(t, loader, "gms-loader is a regular container")
 		serverInitCount := 0
 		for _, container := range podSpec.InitContainers {
 			if container.Name == gms.ServerContainerName {
@@ -631,7 +631,7 @@ func TestInjectCheckpointIntoPodSpec(t *testing.T) {
 
 		assert.Equal(t, corev1.ContainerRestartPolicyAlways, *gmsServer.RestartPolicy)
 		assert.Nil(t, gmsServer.StartupProbe, "no StartupProbe — clients drive readiness via connect-retry")
-		assert.Nil(t, loader.RestartPolicy, "loader is a regular sidecar; pod RestartPolicy applies")
+		assert.Nil(t, loader.RestartPolicy, "loader is a regular container; pod RestartPolicy applies")
 
 		mounts := map[string]string{}
 		for _, mount := range loader.VolumeMounts {

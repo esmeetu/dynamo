@@ -1082,35 +1082,35 @@ func ConvertToGPUMemoryServiceSpec(src *v1beta1.GPUMemoryServiceSpec, dst *GPUMe
 	}
 }
 
-// ConvertFromGMSCheckpointSpec converts GMS checkpoint sidecar overrides to v1beta1.
+// ConvertFromGMSCheckpointSpec converts GMS checkpoint client overrides to v1beta1.
 func ConvertFromGMSCheckpointSpec(src *GMSCheckpointSpec, dst *v1beta1.GMSCheckpointSpec) {
 	*dst = v1beta1.GMSCheckpointSpec{}
 	if src.Loader != nil {
-		dst.Loader = &v1beta1.GMSSidecarSpec{}
-		ConvertFromGMSSidecarSpec(src.Loader, dst.Loader)
+		dst.Loader = &v1beta1.GMSCheckpointClientSpec{}
+		ConvertFromGMSCheckpointClientSpec(src.Loader, dst.Loader)
 	}
 	if src.Saver != nil {
-		dst.Saver = &v1beta1.GMSSidecarSpec{}
-		ConvertFromGMSSidecarSpec(src.Saver, dst.Saver)
+		dst.Saver = &v1beta1.GMSCheckpointClientSpec{}
+		ConvertFromGMSCheckpointClientSpec(src.Saver, dst.Saver)
 	}
 }
 
-// ConvertToGMSCheckpointSpec converts v1beta1 GMS checkpoint sidecar overrides.
+// ConvertToGMSCheckpointSpec converts v1beta1 GMS checkpoint client overrides.
 func ConvertToGMSCheckpointSpec(src *v1beta1.GMSCheckpointSpec, dst *GMSCheckpointSpec) {
 	*dst = GMSCheckpointSpec{}
 	if src.Loader != nil {
-		dst.Loader = &GMSSidecarSpec{}
-		ConvertToGMSSidecarSpec(src.Loader, dst.Loader)
+		dst.Loader = &GMSCheckpointClientSpec{}
+		ConvertToGMSCheckpointClientSpec(src.Loader, dst.Loader)
 	}
 	if src.Saver != nil {
-		dst.Saver = &GMSSidecarSpec{}
-		ConvertToGMSSidecarSpec(src.Saver, dst.Saver)
+		dst.Saver = &GMSCheckpointClientSpec{}
+		ConvertToGMSCheckpointClientSpec(src.Saver, dst.Saver)
 	}
 }
 
-// ConvertFromGMSSidecarSpec converts one GMS sidecar override to v1beta1.
-func ConvertFromGMSSidecarSpec(src *GMSSidecarSpec, dst *v1beta1.GMSSidecarSpec) {
-	*dst = v1beta1.GMSSidecarSpec{
+// ConvertFromGMSCheckpointClientSpec converts one GMS checkpoint client override to v1beta1.
+func ConvertFromGMSCheckpointClientSpec(src *GMSCheckpointClientSpec, dst *v1beta1.GMSCheckpointClientSpec) {
+	*dst = v1beta1.GMSCheckpointClientSpec{
 		Image:        src.Image,
 		Command:      slices.Clone(src.Command),
 		Envs:         cloneNativeEnvVars(src.Envs),
@@ -1121,9 +1121,9 @@ func ConvertFromGMSSidecarSpec(src *GMSSidecarSpec, dst *v1beta1.GMSSidecarSpec)
 	}
 }
 
-// ConvertToGMSSidecarSpec converts one v1beta1 GMS sidecar override.
-func ConvertToGMSSidecarSpec(src *v1beta1.GMSSidecarSpec, dst *GMSSidecarSpec) {
-	*dst = GMSSidecarSpec{
+// ConvertToGMSCheckpointClientSpec converts one v1beta1 GMS checkpoint client override.
+func ConvertToGMSCheckpointClientSpec(src *v1beta1.GMSCheckpointClientSpec, dst *GMSCheckpointClientSpec) {
+	*dst = GMSCheckpointClientSpec{
 		Image:        src.Image,
 		Command:      slices.Clone(src.Command),
 		Envs:         cloneNativeEnvVars(src.Envs),

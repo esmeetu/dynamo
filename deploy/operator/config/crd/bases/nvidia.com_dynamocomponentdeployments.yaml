@@ -10788,12 +10788,12 @@ spec:
                   properties:
                     checkpoint:
                       description: |-
-                        Checkpoint configures optional GMS checkpoint sidecar overrides.
+                        Checkpoint configures optional GMS checkpoint client overrides.
                         Loader applies to restore pods; Saver applies to checkpoint Jobs.
                         Requires Enabled=true (enforced by webhook).
                       properties:
                         loader:
-                          description: Loader overrides the gms-loader sidecar injected into restore pods.
+                          description: Loader configures the client that loads checkpoint artifacts on restore.
                           properties:
                             command:
                               description: |-
@@ -11029,7 +11029,7 @@ spec:
                               type: array
                           type: object
                         saver:
-                          description: Saver overrides the gms-saver sidecar injected into checkpoint Jobs.
+                          description: Saver configures the client that saves checkpoint artifacts in Jobs.
                           properties:
                             command:
                               description: |-
@@ -12321,12 +12321,12 @@ spec:
                       properties:
                         checkpoint:
                           description: |-
-                            checkpoint configures optional GMS checkpoint sidecar overrides.
+                            checkpoint configures optional GMS checkpoint client overrides.
                             loader applies to restore pods; saver applies to checkpoint Jobs.
                             See ExperimentalSpec for the stability caveat.
                           properties:
                             loader:
-                              description: loader overrides the gms-loader sidecar injected into restore pods.
+                              description: loader configures the client that loads checkpoint artifacts on restore.
                               properties:
                                 command:
                                   description: |-
@@ -12562,7 +12562,7 @@ spec:
                                   type: array
                               type: object
                             saver:
-                              description: saver overrides the gms-saver sidecar injected into checkpoint Jobs.
+                              description: saver configures the client that saves checkpoint artifacts in Jobs.
                               properties:
                                 command:
                                   description: |-

@@ -208,29 +208,29 @@ type GPUMemoryServiceSpec struct {
 	// +optional
 	// +kubebuilder:default="gpu.nvidia.com"
 	DeviceClassName string `json:"deviceClassName,omitempty"`
-	// checkpoint configures optional GMS checkpoint sidecar overrides.
+	// checkpoint configures optional GMS checkpoint client overrides.
 	// loader applies to restore pods; saver applies to checkpoint Jobs.
 	// See ExperimentalSpec for the stability caveat.
 	// +optional
 	Checkpoint *GMSCheckpointSpec `json:"checkpoint,omitempty"`
 }
 
-// GMSCheckpointSpec configures optional GMS loader/saver sidecar overrides.
+// GMSCheckpointSpec configures optional GMS checkpoint client overrides.
 // Nil fields leave the operator defaults unchanged.
 type GMSCheckpointSpec struct {
-	// loader overrides the gms-loader sidecar injected into restore pods.
+	// loader configures the client that loads checkpoint artifacts on restore.
 	// +optional
-	Loader *GMSSidecarSpec `json:"loader,omitempty"`
-	// saver overrides the gms-saver sidecar injected into checkpoint Jobs.
+	Loader *GMSCheckpointClientSpec `json:"loader,omitempty"`
+	// saver configures the client that saves checkpoint artifacts in Jobs.
 	// +optional
-	Saver *GMSSidecarSpec `json:"saver,omitempty"`
+	Saver *GMSCheckpointClientSpec `json:"saver,omitempty"`
 }
 
-// GMSSidecarSpec configures one GMS client sidecar. Empty fields keep the
-// operator default. image and command override; envs merge; envFromSecret and
-// volumeMounts append. The container name and GMS socket wiring stay managed
-// by the operator.
-type GMSSidecarSpec struct {
+// GMSCheckpointClientSpec configures user-controlled fields for a GMS
+// checkpoint client container. Empty fields keep operator defaults. image and
+// command override; envs merge; envFromSecret and volumeMounts append.
+// Container name, placement, and GMS wiring are operator-managed.
+type GMSCheckpointClientSpec struct {
 	// image is the container image. When empty the operator default (the main
 	// container's image) is used.
 	// +optional

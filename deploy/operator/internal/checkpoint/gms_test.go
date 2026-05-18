@@ -83,7 +83,7 @@ func TestEnsureGMSRestoreSidecars_ImageOverride(t *testing.T) {
 	podSpec := gmsTestPodSpec()
 	storage := gmsTestStorage()
 	spec := &nvidiacomv1alpha1.GMSCheckpointSpec{
-		Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+		Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 			Image: "byo-loader:v2",
 		},
 	}
@@ -114,7 +114,7 @@ func TestEnsureGMSRestoreSidecars_CommandOverride(t *testing.T) {
 	storage := gmsTestStorage()
 	customCmd := []string{"python3", "-m", "gpu_memory_service.cli.snapshot.loader", "--max-workers", "16"}
 	spec := &nvidiacomv1alpha1.GMSCheckpointSpec{
-		Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+		Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 			Command: customCmd,
 		},
 	}
@@ -135,7 +135,7 @@ func TestEnsureGMSRestoreSidecars_EnvsMerge(t *testing.T) {
 	podSpec := gmsTestPodSpec()
 	storage := gmsTestStorage()
 	spec := &nvidiacomv1alpha1.GMSCheckpointSpec{
-		Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+		Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 			Envs: []corev1.EnvVar{
 				{Name: "GMS_TRANSFER_BACKEND", Value: "nixl-gds"},
 				{Name: envCheckpointDir, Value: "/override/path"},
@@ -166,7 +166,7 @@ func TestEnsureGMSRestoreSidecars_VolumeMountsAppend(t *testing.T) {
 	podSpec := gmsTestPodSpec()
 	storage := gmsTestStorage()
 	spec := &nvidiacomv1alpha1.GMSCheckpointSpec{
-		Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+		Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "weights", MountPath: "/mnt/weights"},
 			},
@@ -196,7 +196,7 @@ func TestEnsureGMSRestoreSidecars_EnvFromSecret(t *testing.T) {
 	podSpec := gmsTestPodSpec()
 	storage := gmsTestStorage()
 	spec := &nvidiacomv1alpha1.GMSCheckpointSpec{
-		Loader: &nvidiacomv1alpha1.GMSSidecarSpec{
+		Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 			EnvFromSecret: ptrTo("s3-creds"),
 		},
 	}
@@ -231,12 +231,12 @@ func TestEnsureGMSCheckpointJobSidecars_NilCheckpointSpec(t *testing.T) {
 }
 
 // TestEnsureGMSCheckpointJobSidecars_SaverOverride asserts the saver merge
-// path matches the loader merge path (same applyGMSSidecarSpec helper).
+// path matches the loader merge path (same applyGMSCheckpointClientSpec helper).
 func TestEnsureGMSCheckpointJobSidecars_SaverOverride(t *testing.T) {
 	podSpec := gmsTestPodSpec()
 	storage := gmsTestStorage()
 	spec := &nvidiacomv1alpha1.GMSCheckpointSpec{
-		Saver: &nvidiacomv1alpha1.GMSSidecarSpec{
+		Saver: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 			Image:         "byo-saver:v3",
 			Command:       []string{"python3", "-m", "my.saver", "--max-workers", "32"},
 			Envs:          []corev1.EnvVar{{Name: "GMS_SAVE_LOCK_TIMEOUT_MS", Value: "60000"}},
@@ -246,7 +246,7 @@ func TestEnsureGMSCheckpointJobSidecars_SaverOverride(t *testing.T) {
 		// Loader on a Job-side path is ignored by Ensure...JobSidecars (and
 		// rejected by the DynamoCheckpoint webhook); set it here to prove the
 		// helper doesn't accidentally use the wrong field.
-		Loader: &nvidiacomv1alpha1.GMSSidecarSpec{Image: "should-not-be-used:latest"},
+		Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "should-not-be-used:latest"},
 	}
 
 	require.NoError(t, EnsureGMSCheckpointJobSidecars(podSpec, &podSpec.Containers[0], storage, spec))
@@ -278,40 +278,40 @@ func TestEnsureGMSCheckpointJobSidecars_SaverOverride(t *testing.T) {
 	assert.Equal(t, "s3-creds", saver.EnvFrom[0].SecretRef.Name)
 }
 
-// TestApplyGMSSidecarSpec_NilIsNoop directly covers the helper for paranoia.
-func TestApplyGMSSidecarSpec_NilIsNoop(t *testing.T) {
+// TestApplyGMSCheckpointClientSpec_NilIsNoop directly covers the helper for paranoia.
+func TestApplyGMSCheckpointClientSpec_NilIsNoop(t *testing.T) {
 	base := corev1.Container{
 		Name:    GMSLoaderContainer,
 		Image:   "base:1",
 		Command: []string{"python3", "-m", gmsCheckpointLoaderModule},
 		Env:     []corev1.EnvVar{{Name: "X", Value: "1"}},
 	}
-	out := applyGMSSidecarSpec(base, nil)
+	out := applyGMSCheckpointClientSpec(base, nil)
 	assert.Equal(t, base, out, "nil spec is byte-identical no-op")
 }
 
-// TestApplyGMSSidecarSpec_EmptySpecIsNoop covers the "checkpoint.loader: {}"
+// TestApplyGMSCheckpointClientSpec_EmptySpecIsNoop covers the "checkpoint.loader: {}"
 // case explicitly — empty struct opts into the merge path but every field is
 // empty, so the base container is returned unchanged.
-func TestApplyGMSSidecarSpec_EmptySpecIsNoop(t *testing.T) {
+func TestApplyGMSCheckpointClientSpec_EmptySpecIsNoop(t *testing.T) {
 	base := corev1.Container{
 		Name:    GMSLoaderContainer,
 		Image:   "base:1",
 		Command: []string{"python3", "-m", gmsCheckpointLoaderModule},
 	}
-	out := applyGMSSidecarSpec(base, &nvidiacomv1alpha1.GMSSidecarSpec{})
+	out := applyGMSCheckpointClientSpec(base, &nvidiacomv1alpha1.GMSCheckpointClientSpec{})
 	assert.Equal(t, "base:1", out.Image)
 	assert.Equal(t, []string{"python3", "-m", gmsCheckpointLoaderModule}, out.Command)
 	assert.Empty(t, out.EnvFrom)
 }
 
-// TestApplyGMSSidecarSpec_EmptyEnvFromSecretIgnored asserts an explicitly empty
+// TestApplyGMSCheckpointClientSpec_EmptyEnvFromSecretIgnored asserts an explicitly empty
 // EnvFromSecret pointer does not add a malformed envFrom source. This matches
 // the lean-config stance — operator-supplied config is trusted, but an empty
 // secret name is not a legal Kubernetes reference and must not be rendered.
-func TestApplyGMSSidecarSpec_EmptyEnvFromSecretIgnored(t *testing.T) {
+func TestApplyGMSCheckpointClientSpec_EmptyEnvFromSecretIgnored(t *testing.T) {
 	base := corev1.Container{Name: GMSLoaderContainer}
-	out := applyGMSSidecarSpec(base, &nvidiacomv1alpha1.GMSSidecarSpec{
+	out := applyGMSCheckpointClientSpec(base, &nvidiacomv1alpha1.GMSCheckpointClientSpec{
 		EnvFromSecret: ptrTo(""),
 	})
 	assert.Empty(t, out.EnvFrom, "empty secret name does not add an envFrom source")
