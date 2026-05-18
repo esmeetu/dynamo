@@ -20,6 +20,9 @@ use crate::metrics::request_plane::{
 use crate::pipeline::network::ConnectionInfo;
 use crate::pipeline::network::NetworkStreamWrapper;
 use crate::pipeline::network::PendingConnections;
+use crate::pipeline::network::RequestControlMessage;
+use crate::pipeline::network::RequestType;
+use crate::pipeline::network::ResponseType;
 use crate::pipeline::network::StreamOptions;
 use crate::pipeline::network::TwoPartCodec;
 use crate::pipeline::network::codec::TwoPartMessage;
@@ -29,39 +32,10 @@ use crate::protocols::maybe_error::MaybeError;
 
 use anyhow::{Error, Result};
 use futures::stream::Stream;
-use serde::Deserialize;
-use serde::Serialize;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio_stream::{StreamExt, StreamNotifyClose, wrappers::ReceiverStream};
 use tracing::Instrument;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum RequestType {
-    SingleIn,
-    ManyIn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ResponseType {
-    SingleOut,
-    ManyOut,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RequestControlMessage {
-    id: String,
-    request_type: RequestType,
-    response_type: ResponseType,
-    connection_info: ConnectionInfo,
-    /// Wall-clock send timestamp (nanos since UNIX epoch) for transport latency breakdown.
-    /// Uses `SystemTime` so accuracy depends on NTP sync between frontend and backend hosts.
-    /// Reliable for single-machine profiling; treat cross-host values as approximate.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    frontend_send_ts_ns: Option<u64>,
-}
 
 /// RAII guard that decrements REQUEST_PLANE_INFLIGHT on drop unless disarmed.
 /// Protects against gauge leaks when `?` operators cause early returns between
@@ -256,6 +230,7 @@ where
             response_type: ResponseType::ManyOut,
             connection_info,
             frontend_send_ts_ns: None,
+            request_stream_connection_info: None,
         };
 
         // next build the two part message where we package the connection info and the request into
