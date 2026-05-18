@@ -790,7 +790,7 @@ where
 
     async fn generate_with_fault_detection(
         &self,
-        mut instance_id: u64,
+        instance_id: u64,
         request: SingleIn<T>,
     ) -> anyhow::Result<ManyOut<U>> {
         let route_start = Instant::now();
@@ -806,106 +806,10 @@ where
             )
         };
 
-        // Check if all workers are busy (when fault detection is enabled).
-        if self.fault_detection_enabled {
-            let free_instances = self.client.instance_ids_free();
-            if free_instances.is_empty() {
-                // Check if we actually have any instances at all
-                let all_instances = self.client.instance_ids();
-                if !all_instances.is_empty() {
-                    tracing::warn!(
-                        instance_id,
-                        total_workers = all_instances.len(),
-                        "Rejecting request: all workers are busy"
-                    );
-                    let cause = PipelineError::ServiceOverloaded(
-                        "All workers are busy, please retry later".to_string(),
-                    );
-                    return Err(DynamoError::builder()
-                        .error_type(ErrorType::ResourceExhausted)
-                        .message("All workers are busy, please retry later")
-                        .cause(cause)
-                        .build()
-                        .into());
-                }
-            }
-        }
+        self.check_workers_available(instance_id)?;
 
-        // Resolve transport address; if the selected instance disappeared
-        // between selection and dispatch, fall back to another available one.
-        let (address, _transport_kind, instance) = {
-            use crate::component::TransportType;
-
-            let resolve_transport = |id: u64| {
-                let instances = self.client.instances();
-                instances
-                    .iter()
-                    .find(|i| i.instance_id == id)
-                    .map(|instance| {
-                        let (addr, kind) = match &instance.transport {
-                            TransportType::Http(http_endpoint) => {
-                                tracing::debug!(
-                                    instance_id = id,
-                                    http_endpoint = %http_endpoint,
-                                    "Using HTTP transport for instance"
-                                );
-                                (http_endpoint.clone(), "transport.http.request")
-                            }
-                            TransportType::Tcp(tcp_endpoint) => {
-                                tracing::debug!(
-                                    instance_id = id,
-                                    tcp_endpoint = %tcp_endpoint,
-                                    "Using TCP transport for instance"
-                                );
-                                (tcp_endpoint.clone(), "transport.tcp.request")
-                            }
-                            TransportType::Nats(subject) => {
-                                tracing::debug!(
-                                    instance_id = id,
-                                    subject = %subject,
-                                    "Using NATS transport for instance"
-                                );
-                                (subject.clone(), "transport.nats.request")
-                            }
-                        };
-                        (addr, kind, instance.clone())
-                    })
-            };
-
-            if let Some(result) = resolve_transport(instance_id) {
-                result
-            } else {
-                // Instance vanished — pick a different one from the current
-                // availability list and retry the lookup once.
-                let avail = self.client.instance_ids_avail();
-                let fallback_id = avail.iter().copied().find(|&id| id != instance_id);
-                match fallback_id {
-                    Some(id) => {
-                        tracing::warn!(
-                            original_instance = instance_id,
-                            fallback_instance = id,
-                            "Instance disappeared during routing, reselecting"
-                        );
-                        instance_id = id;
-                        resolve_transport(id).ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Fallback instance {} also not found for endpoint {}",
-                                id,
-                                self.client.endpoint.id()
-                            )
-                        })?
-                    }
-                    None => {
-                        return Err(anyhow::anyhow!(
-                            "Instance {} not found and no other instances available \
-                             for endpoint {}",
-                            instance_id,
-                            self.client.endpoint.id()
-                        ));
-                    }
-                }
-            }
-        };
+        let (instance_id, address, transport_kind, instance) =
+            self.resolve_transport(instance_id)?;
 
         let request = request.map(|req| AddressedRequest::with_instance(req, address, instance));
 
@@ -913,82 +817,180 @@ where
             .with_label_values(&[STAGE_ROUTE])
             .observe(route_start.elapsed().as_secs_f64());
 
-        let _nvtx_transport = dynamo_nvtx_range!(_transport_kind);
+        let _nvtx_transport = dynamo_nvtx_range!(transport_kind);
         let stream: anyhow::Result<ManyOut<U>> = self
             .addressed
             .generate(request)
             .instrument(route_span)
             .await;
-        match stream {
-            Ok(stream) => {
-                if !self.fault_detection_enabled {
-                    return Ok(stream);
-                }
-                let engine_ctx = stream.context();
-                let client = self.client.clone();
-                let client_for_timeout = self.client.clone();
-                let stream = stream.map(move |res| {
-                    // Check if the error is migratable (indicates worker/connection failure)
-                    if let Some(err) = res.err()
-                        && is_inhibited(&err)
-                    {
-                        tracing::debug!(
-                            "Reporting instance {instance_id} down due to migratable error: {err}"
-                        );
-                        client.report_instance_down(instance_id);
-                    }
-                    res
-                });
+        self.wrap_with_fault_detection(stream, instance_id)
+    }
 
-                // Request-plane inactivity timeout: emit a ResponseTimeout error item
-                // when the backend stops producing output. This triggers is_inhibited()
-                // → report_instance_down() to quarantine the worker.
-                let stream: Pin<Box<dyn Stream<Item = U> + Send>> = if let Some(timeout) =
-                    self.response_timeout
-                {
-                    Box::pin(async_stream::stream! {
-                        let mut inner = Box::pin(stream);
-                        loop {
-                            tokio::select! {
-                                biased;
-                                item = inner.next() => {
-                                    match item {
-                                        Some(item) => yield item,
-                                        None => break,
-                                    }
-                                }
-                                _ = tokio::time::sleep(timeout) => {
-                                    tracing::warn!(
-                                        instance_id,
-                                        timeout_secs = timeout.as_secs(),
-                                        "backend response inactivity timeout — quarantining worker"
-                                    );
-                                    client_for_timeout.report_instance_down(instance_id);
-                                    yield U::from_err(
-                                        crate::error::DynamoError::builder()
-                                            .error_type(crate::error::ErrorType::ResponseTimeout)
-                                            .message("backend response inactivity timeout")
-                                            .build()
-                                    );
-                                    break;
-                                }
-                            }
+    /// Reject early if all workers are busy and fault detection is enabled.
+    /// Returns `Err(ResourceExhausted)` so the caller can surface a retryable
+    /// error to the client without spending request-plane bandwidth.
+    fn check_workers_available(&self, instance_id: u64) -> anyhow::Result<()> {
+        if !self.fault_detection_enabled {
+            return Ok(());
+        }
+        let free_instances = self.client.instance_ids_free();
+        if !free_instances.is_empty() {
+            return Ok(());
+        }
+        let all_instances = self.client.instance_ids();
+        if all_instances.is_empty() {
+            return Ok(());
+        }
+        tracing::warn!(
+            instance_id,
+            total_workers = all_instances.len(),
+            "Rejecting request: all workers are busy"
+        );
+        let cause =
+            PipelineError::ServiceOverloaded("All workers are busy, please retry later".into());
+        Err(DynamoError::builder()
+            .error_type(ErrorType::ResourceExhausted)
+            .message("All workers are busy, please retry later")
+            .cause(cause)
+            .build()
+            .into())
+    }
+
+    /// Resolve `(address, transport_kind_label, Instance)` for `instance_id`.
+    /// If the selected instance has disappeared between selection and
+    /// dispatch, fall back to one other available instance and return the
+    /// updated id so the caller can report-down the right worker on later
+    /// failures.
+    fn resolve_transport(
+        &self,
+        instance_id: u64,
+    ) -> anyhow::Result<(u64, String, &'static str, Instance)> {
+        use crate::component::TransportType;
+
+        let lookup = |id: u64| {
+            self.client
+                .instances()
+                .iter()
+                .find(|i| i.instance_id == id)
+                .map(|instance| {
+                    let (addr, kind) = match &instance.transport {
+                        TransportType::Http(http_endpoint) => {
+                            (http_endpoint.clone(), "transport.http.request")
                         }
-                    })
-                } else {
-                    Box::pin(stream)
-                };
+                        TransportType::Tcp(tcp_endpoint) => {
+                            (tcp_endpoint.clone(), "transport.tcp.request")
+                        }
+                        TransportType::Nats(subject) => (subject.clone(), "transport.nats.request"),
+                    };
+                    (addr, kind, instance.clone())
+                })
+        };
 
-                Ok(ResponseStream::new(stream, engine_ctx))
+        if let Some((addr, kind, inst)) = lookup(instance_id) {
+            return Ok((instance_id, addr, kind, inst));
+        }
+
+        let avail = self.client.instance_ids_avail();
+        let fallback_id = avail.iter().copied().find(|&id| id != instance_id);
+        match fallback_id {
+            Some(id) => {
+                tracing::warn!(
+                    original_instance = instance_id,
+                    fallback_instance = id,
+                    "Instance disappeared during routing, reselecting"
+                );
+                let (addr, kind, inst) = lookup(id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Fallback instance {} also not found for endpoint {}",
+                        id,
+                        self.client.endpoint.id()
+                    )
+                })?;
+                Ok((id, addr, kind, inst))
             }
+            None => Err(anyhow::anyhow!(
+                "Instance {} not found and no other instances available for endpoint {}",
+                instance_id,
+                self.client.endpoint.id()
+            )),
+        }
+    }
+
+    /// Wrap a dispatched stream with fault detection + inactivity timeout.
+    /// `is_inhibited` errors trigger `report_instance_down`; the timeout
+    /// (driven by `DYN_HTTP_BACKEND_STREAM_TIMEOUT_SECS`) yields a synthetic
+    /// `ResponseTimeout` and quarantines the worker.
+    fn wrap_with_fault_detection(
+        &self,
+        stream: anyhow::Result<ManyOut<U>>,
+        instance_id: u64,
+    ) -> anyhow::Result<ManyOut<U>> {
+        let stream = match stream {
+            Ok(stream) => stream,
             Err(err) => {
                 if self.fault_detection_enabled && is_inhibited(err.as_ref()) {
                     tracing::debug!("Reporting instance {instance_id} down due to error: {err}");
                     self.client.report_instance_down(instance_id);
                 }
-                Err(err)
+                return Err(err);
             }
+        };
+
+        if !self.fault_detection_enabled {
+            return Ok(stream);
         }
+
+        let engine_ctx = stream.context();
+        let client = self.client.clone();
+        let client_for_timeout = self.client.clone();
+        let stream = stream.map(move |res| {
+            if let Some(err) = res.err()
+                && is_inhibited(&err)
+            {
+                tracing::debug!(
+                    "Reporting instance {instance_id} down due to migratable error: {err}"
+                );
+                client.report_instance_down(instance_id);
+            }
+            res
+        });
+
+        let stream: Pin<Box<dyn Stream<Item = U> + Send>> =
+            if let Some(timeout) = self.response_timeout {
+                Box::pin(async_stream::stream! {
+                    let mut inner = Box::pin(stream);
+                    loop {
+                        tokio::select! {
+                            biased;
+                            item = inner.next() => {
+                                match item {
+                                    Some(item) => yield item,
+                                    None => break,
+                                }
+                            }
+                            _ = tokio::time::sleep(timeout) => {
+                                tracing::warn!(
+                                    instance_id,
+                                    timeout_secs = timeout.as_secs(),
+                                    "backend response inactivity timeout — quarantining worker"
+                                );
+                                client_for_timeout.report_instance_down(instance_id);
+                                yield U::from_err(
+                                    crate::error::DynamoError::builder()
+                                        .error_type(crate::error::ErrorType::ResponseTimeout)
+                                        .message("backend response inactivity timeout")
+                                        .build()
+                                );
+                                break;
+                            }
+                        }
+                    }
+                })
+            } else {
+                Box::pin(stream)
+            };
+
+        Ok(ResponseStream::new(stream, engine_ctx))
     }
 }
 
@@ -1023,181 +1025,34 @@ where
     U: Data + for<'de> Deserialize<'de> + MaybeError,
 {
     /// Bidirectional sibling of [`Self::generate_with_fault_detection`].
-    /// Resolves `(address, instance)` for `instance_id`, calls
-    /// [`AddressedPushRouter::generate_bidirectional`] with the bidirectional
-    /// input stream, then applies the same fault-detection / inactivity-
-    /// timeout wrap on the response stream as the unary path.
     async fn bidirectional_dispatch(
         &self,
-        mut instance_id: u64,
+        instance_id: u64,
         input: ManyIn<T>,
     ) -> anyhow::Result<ManyOut<U>> {
         let route_start = Instant::now();
-        let request_id = input.context().id().to_string();
         let route_span = tracing::info_span!(
             "router.route_request_bidirectional",
-            request_id = %request_id,
+            request_id = %input.context().id(),
             worker_id = instance_id,
             router_mode = ?self.router_mode,
         );
 
-        if self.fault_detection_enabled {
-            let free_instances = self.client.instance_ids_free();
-            if free_instances.is_empty() {
-                let all_instances = self.client.instance_ids();
-                if !all_instances.is_empty() {
-                    tracing::warn!(
-                        instance_id,
-                        total_workers = all_instances.len(),
-                        "Rejecting bidirectional request: all workers are busy"
-                    );
-                    let cause = PipelineError::ServiceOverloaded(
-                        "All workers are busy, please retry later".to_string(),
-                    );
-                    return Err(DynamoError::builder()
-                        .error_type(ErrorType::ResourceExhausted)
-                        .message("All workers are busy, please retry later")
-                        .cause(cause)
-                        .build()
-                        .into());
-                }
-            }
-        }
-
-        let (address, _transport_kind, instance) = {
-            use crate::component::TransportType;
-
-            let resolve_transport = |id: u64| {
-                let instances = self.client.instances();
-                instances
-                    .iter()
-                    .find(|i| i.instance_id == id)
-                    .map(|instance| {
-                        let (addr, kind) = match &instance.transport {
-                            TransportType::Http(http_endpoint) => {
-                                (http_endpoint.clone(), "transport.http.request")
-                            }
-                            TransportType::Tcp(tcp_endpoint) => {
-                                (tcp_endpoint.clone(), "transport.tcp.request")
-                            }
-                            TransportType::Nats(subject) => {
-                                (subject.clone(), "transport.nats.request")
-                            }
-                        };
-                        (addr, kind, instance.clone())
-                    })
-            };
-
-            if let Some(result) = resolve_transport(instance_id) {
-                result
-            } else {
-                let avail = self.client.instance_ids_avail();
-                let fallback_id = avail.iter().copied().find(|&id| id != instance_id);
-                match fallback_id {
-                    Some(id) => {
-                        tracing::warn!(
-                            original_instance = instance_id,
-                            fallback_instance = id,
-                            "Instance disappeared during bidirectional routing, reselecting"
-                        );
-                        instance_id = id;
-                        resolve_transport(id).ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Fallback instance {} also not found for endpoint {}",
-                                id,
-                                self.client.endpoint.id()
-                            )
-                        })?
-                    }
-                    None => {
-                        return Err(anyhow::anyhow!(
-                            "Instance {} not found and no other instances available \
-                             for endpoint {}",
-                            instance_id,
-                            self.client.endpoint.id()
-                        ));
-                    }
-                }
-            }
-        };
+        self.check_workers_available(instance_id)?;
+        let (instance_id, address, transport_kind, instance) =
+            self.resolve_transport(instance_id)?;
 
         STAGE_DURATION_SECONDS
             .with_label_values(&[STAGE_ROUTE])
             .observe(route_start.elapsed().as_secs_f64());
 
-        let _nvtx_transport = dynamo_nvtx_range!(_transport_kind);
+        let _nvtx_transport = dynamo_nvtx_range!(transport_kind);
         let stream: anyhow::Result<ManyOut<U>> = self
             .addressed
             .generate_bidirectional(instance, address, input)
             .instrument(route_span)
             .await;
-
-        match stream {
-            Ok(stream) => {
-                if !self.fault_detection_enabled {
-                    return Ok(stream);
-                }
-                let engine_ctx = stream.context();
-                let client = self.client.clone();
-                let client_for_timeout = self.client.clone();
-                let stream = stream.map(move |res| {
-                    if let Some(err) = res.err()
-                        && is_inhibited(&err)
-                    {
-                        tracing::debug!(
-                            "Reporting instance {instance_id} down due to migratable error: {err}"
-                        );
-                        client.report_instance_down(instance_id);
-                    }
-                    res
-                });
-
-                let stream: Pin<Box<dyn Stream<Item = U> + Send>> = if let Some(timeout) =
-                    self.response_timeout
-                {
-                    Box::pin(async_stream::stream! {
-                        let mut inner = Box::pin(stream);
-                        loop {
-                            tokio::select! {
-                                biased;
-                                item = inner.next() => {
-                                    match item {
-                                        Some(item) => yield item,
-                                        None => break,
-                                    }
-                                }
-                                _ = tokio::time::sleep(timeout) => {
-                                    tracing::warn!(
-                                        instance_id,
-                                        timeout_secs = timeout.as_secs(),
-                                        "backend bidirectional response inactivity timeout — quarantining worker"
-                                    );
-                                    client_for_timeout.report_instance_down(instance_id);
-                                    yield U::from_err(
-                                        crate::error::DynamoError::builder()
-                                            .error_type(crate::error::ErrorType::ResponseTimeout)
-                                            .message("backend response inactivity timeout")
-                                            .build()
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    })
-                } else {
-                    Box::pin(stream)
-                };
-
-                Ok(ResponseStream::new(stream, engine_ctx))
-            }
-            Err(err) => {
-                if self.fault_detection_enabled && is_inhibited(err.as_ref()) {
-                    tracing::debug!("Reporting instance {instance_id} down due to error: {err}");
-                    self.client.report_instance_down(instance_id);
-                }
-                Err(err)
-            }
-        }
+        self.wrap_with_fault_detection(stream, instance_id)
     }
 }
 
