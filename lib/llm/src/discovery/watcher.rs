@@ -1031,12 +1031,12 @@ impl ModelWatcher {
             // typed end-to-end on the realtime event pair, no Backend /
             // Migration composition. The `model_input == Text` guard matches
             // the multimodal arm above — realtime carries JSON `Message::Text`
-            // frames over `/v1/realtime`. Note that PushRouter's bidirectional
-            // generate currently bails after sticky-instance selection
-            // pending #9361 (remote dispatch over AddressedPushRouter), so
-            // the engine slot is populated but unusable for discovered
-            // workers until that work lands. The local-engine path via
-            // ModelManager.add_realtime_model is unaffected.
+            // frames over `/v1/realtime`. Per-frame remote dispatch is wired
+            // through `AddressedPushRouter::generate_bidirectional` and the
+            // `BidirectionalIngress` impl in the runtime crate (resolved by
+            // #9361); discovered `ModelType::Realtime` workers are reachable
+            // end-to-end without falling back to the local-engine
+            // `ModelManager.add_realtime_model` path.
             let realtime_router = PushRouter::<
                 RealtimeClientEvent,
                 Annotated<RealtimeServerEvent>,
