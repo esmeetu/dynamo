@@ -11179,6 +11179,9 @@ spec:
                                         - name
                                       type: object
                                     type: array
+                                    x-kubernetes-list-map-keys:
+                                      - name
+                                    x-kubernetes-list-type: map
                                   image:
                                     description: |-
                                       Image is the container image. When empty the operator default (the
@@ -11250,6 +11253,9 @@ spec:
                                         - name
                                       type: object
                                     type: array
+                                    x-kubernetes-list-map-keys:
+                                      - mountPath
+                                    x-kubernetes-list-type: map
                                 type: object
                               saver:
                                 description: Saver configures the client that saves checkpoint artifacts in Jobs.
@@ -11415,6 +11421,9 @@ spec:
                                         - name
                                       type: object
                                     type: array
+                                    x-kubernetes-list-map-keys:
+                                      - name
+                                    x-kubernetes-list-type: map
                                   image:
                                     description: |-
                                       Image is the container image. When empty the operator default (the
@@ -11486,6 +11495,9 @@ spec:
                                         - name
                                       type: object
                                     type: array
+                                    x-kubernetes-list-map-keys:
+                                      - mountPath
+                                    x-kubernetes-list-type: map
                                 type: object
                             type: object
                           deviceClassName:
@@ -12839,6 +12851,9 @@ spec:
                                             - name
                                           type: object
                                         type: array
+                                        x-kubernetes-list-map-keys:
+                                          - name
+                                        x-kubernetes-list-type: map
                                       image:
                                         description: |-
                                           image is the container image. When empty the operator default (the main
@@ -12910,6 +12925,9 @@ spec:
                                             - name
                                           type: object
                                         type: array
+                                        x-kubernetes-list-map-keys:
+                                          - mountPath
+                                        x-kubernetes-list-type: map
                                     type: object
                                   saver:
                                     description: saver configures the client that saves checkpoint artifacts in Jobs.
@@ -13075,6 +13093,9 @@ spec:
                                             - name
                                           type: object
                                         type: array
+                                        x-kubernetes-list-map-keys:
+                                          - name
+                                        x-kubernetes-list-type: map
                                       image:
                                         description: |-
                                           image is the container image. When empty the operator default (the main
@@ -13146,6 +13167,9 @@ spec:
                                             - name
                                           type: object
                                         type: array
+                                        x-kubernetes-list-map-keys:
+                                          - mountPath
+                                        x-kubernetes-list-type: map
                                     type: object
                                 type: object
                               deviceClassName:

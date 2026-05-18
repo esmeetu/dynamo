@@ -8,7 +8,6 @@ package checkpoint
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 
 	nvidiacomv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/api/v1alpha1"
 	gms "github.com/ai-dynamo/dynamo/deploy/operator/internal/gms"
@@ -138,23 +137,22 @@ func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv
 
 // mergeEnvVars uses user-wins semantics except for operator-owned GMS_SOCKET_DIR.
 func mergeEnvVars(base, overrides []corev1.EnvVar) []corev1.EnvVar {
-	envMap := make(map[string]corev1.EnvVar, len(base)+len(overrides))
-	for _, env := range base {
-		envMap[env.Name] = env
+	merged := append([]corev1.EnvVar(nil), base...)
+	indexByName := make(map[string]int, len(merged))
+	for i := range merged {
+		indexByName[merged[i].Name] = i
 	}
 	for _, env := range overrides {
 		if env.Name == gms.EnvSocketDir {
 			continue
 		}
-		envMap[env.Name] = env
-	}
-	merged := make([]corev1.EnvVar, 0, len(envMap))
-	for _, env := range envMap {
+		if i, ok := indexByName[env.Name]; ok {
+			merged[i] = env
+			continue
+		}
+		indexByName[env.Name] = len(merged)
 		merged = append(merged, env)
 	}
-	sort.Slice(merged, func(i, j int) bool {
-		return merged[i].Name < merged[j].Name
-	})
 	return merged
 }
 

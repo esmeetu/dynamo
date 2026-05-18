@@ -225,6 +225,8 @@ type GMSClientSpec struct {
 	// Envs are additional environment variables. They are merged with (and
 	// may override) operator-set vars; GMS_SOCKET_DIR remains operator-owned.
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	Envs []corev1.EnvVar `json:"envs,omitempty"`
 
 	// EnvFromSecret is an optional Secret name; all keys are exposed as
@@ -236,6 +238,8 @@ type GMSClientSpec struct {
 	// extraPodSpec.podSpec.volumes or job.podSpec.volumes). They are appended
 	// to the operator's mounts, not replacing them.
 	// +optional
+	// +listType=map
+	// +listMapKey=mountPath
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }
 

@@ -148,6 +148,8 @@ func TestEnsureGMSRestoreSidecars_EnvsMerge(t *testing.T) {
 
 	loader := findContainer(podSpec, GMSLoaderContainer)
 	require.NotNil(t, loader)
+	assert.Equal(t, []string{gms.EnvSocketDir, envCheckpointDir, "GMS_TRANSFER_BACKEND"}, envNames(loader.Env),
+		"merge preserves base order, replaces existing keys in place, and appends new keys")
 
 	env := map[string]string{}
 	for _, e := range loader.Env {
@@ -315,4 +317,12 @@ func TestApplyGMSClientSpec_EmptyEnvFromSecretIgnored(t *testing.T) {
 		EnvFromSecret: ptrTo(""),
 	})
 	assert.Empty(t, out.EnvFrom, "empty secret name does not add an envFrom source")
+}
+
+func envNames(envs []corev1.EnvVar) []string {
+	names := make([]string, 0, len(envs))
+	for _, env := range envs {
+		names = append(names, env.Name)
+	}
+	return names
 }
