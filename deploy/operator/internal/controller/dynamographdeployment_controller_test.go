@@ -744,6 +744,85 @@ func TestDynamoGraphDeploymentReconciler_createCheckpointCR_reusesExistingCaptur
 	}
 }
 
+func TestDynamoGraphDeploymentReconciler_createCheckpointCR_preservesGMSSaverOverride(t *testing.T) {
+	t.Setenv(commonconsts.DynamoOperatorAllowGMSSnapshotEnvVar, "1")
+	ctx := context.Background()
+	testScheme := newDynamoGraphDeploymentControllerTestScheme(t)
+	identity := v1alpha1.DynamoCheckpointIdentity{
+		Model:            "meta-llama/Llama-2-7b-hf",
+		BackendFramework: "vllm",
+	}
+
+	reconciler := &DynamoGraphDeploymentReconciler{
+		Client: fake.NewClientBuilder().
+			WithScheme(testScheme).
+			Build(),
+		Config:   &configv1alpha1.OperatorConfiguration{},
+		Recorder: record.NewFakeRecorder(10),
+	}
+
+	dgd := betaDGD(t, &v1alpha1.DynamoGraphDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-dgd",
+			Namespace: "default",
+		},
+	})
+	component := &v1alpha1.DynamoComponentDeploymentSharedSpec{
+		ComponentType: string(commonconsts.ComponentTypeWorker),
+		Resources: &v1alpha1.Resources{
+			Limits: &v1alpha1.ResourceItem{GPU: "1"},
+		},
+		GPUMemoryService: &v1alpha1.GPUMemoryServiceSpec{
+			Enabled: true,
+			Mode:    v1alpha1.GMSModeIntraPod,
+			Checkpoint: &v1alpha1.GMSCheckpointSpec{
+				Loader: &v1alpha1.GMSSidecarSpec{Image: "custom-loader:latest"},
+				Saver: &v1alpha1.GMSSidecarSpec{
+					Image:   "custom-saver:latest",
+					Command: []string{"/bin/custom-saver"},
+				},
+			},
+		},
+		Checkpoint: &v1alpha1.ServiceCheckpointConfig{
+			Enabled: true,
+			Mode:    v1alpha1.CheckpointModeAuto,
+			Identity: &v1alpha1.DynamoCheckpointIdentity{
+				Model:                identity.Model,
+				BackendFramework:     identity.BackendFramework,
+				TensorParallelSize:   1,
+				PipelineParallelSize: 1,
+				ExtraParameters:      map[string]string{},
+			},
+		},
+		ExtraPodSpec: &v1alpha1.ExtraPodSpec{
+			MainContainer: &corev1.Container{
+				Name:  commonconsts.MainContainerName,
+				Image: "checkpoint-writer:latest",
+			},
+		},
+	}
+
+	ckpt, err := reconciler.createCheckpointCR(ctx, dgd, "worker", betaComponent(t, component))
+	if err != nil {
+		t.Fatalf("createCheckpointCR() error = %v", err)
+	}
+	if ckpt.Spec.GPUMemoryService == nil || !ckpt.Spec.GPUMemoryService.Enabled {
+		t.Fatalf("expected auto-created checkpoint to carry enabled GMS spec, got %#v", ckpt.Spec.GPUMemoryService)
+	}
+	if ckpt.Spec.GPUMemoryService.Checkpoint == nil || ckpt.Spec.GPUMemoryService.Checkpoint.Saver == nil {
+		t.Fatalf("expected auto-created checkpoint to carry saver override, got %#v", ckpt.Spec.GPUMemoryService.Checkpoint)
+	}
+	if got := ckpt.Spec.GPUMemoryService.Checkpoint.Saver.Image; got != "custom-saver:latest" {
+		t.Fatalf("checkpoint saver image = %q, want custom-saver:latest", got)
+	}
+	if got := ckpt.Spec.GPUMemoryService.Checkpoint.Saver.Command; len(got) != 1 || got[0] != "/bin/custom-saver" {
+		t.Fatalf("checkpoint saver command = %#v, want [/bin/custom-saver]", got)
+	}
+	if ckpt.Spec.GPUMemoryService.Checkpoint.Loader != nil {
+		t.Fatalf("save-time DynamoCheckpoint must not carry service loader override, got %#v", ckpt.Spec.GPUMemoryService.Checkpoint.Loader)
+	}
+}
+
 func TestDynamoGraphDeploymentReconciler_reconcileCheckpoints_checkpointRefSkipsAutoCreateWhileReferencedCRIsNotReady(t *testing.T) {
 	ctx := context.Background()
 	testScheme := newDynamoGraphDeploymentControllerTestScheme(t)
@@ -923,6 +1002,95 @@ func TestDynamoGraphDeploymentReconciler_reconcileCheckpoints_checkpointRefUsesR
 	}
 	if !checkpointStatuses["worker"].Ready {
 		t.Fatalf("expected checkpoint status to be ready")
+	}
+}
+
+func TestDynamoGraphDeploymentReconciler_reconcileCheckpoints_overlaysServiceGMSLoader(t *testing.T) {
+	t.Setenv(commonconsts.DynamoOperatorAllowGMSSnapshotEnvVar, "1")
+	ctx := context.Background()
+	testScheme := newDynamoGraphDeploymentControllerTestScheme(t)
+	identity := v1alpha1.DynamoCheckpointIdentity{
+		Model:            "meta-llama/Llama-2-7b-hf",
+		BackendFramework: "vllm",
+	}
+	hash, err := checkpoint.ComputeIdentityHash(identity)
+	if err != nil {
+		t.Fatalf("Failed to compute checkpoint hash: %v", err)
+	}
+
+	referenced := &v1alpha1.DynamoCheckpoint{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      friendlyCheckpointName,
+			Namespace: "default",
+		},
+		Spec: v1alpha1.DynamoCheckpointSpec{
+			Identity:         identity,
+			GPUMemoryService: &v1alpha1.GPUMemoryServiceSpec{Enabled: true},
+		},
+		Status: v1alpha1.DynamoCheckpointStatus{
+			Phase:        v1alpha1.DynamoCheckpointPhaseReady,
+			IdentityHash: hash,
+		},
+	}
+
+	reconciler := &DynamoGraphDeploymentReconciler{
+		Client: fake.NewClientBuilder().
+			WithScheme(testScheme).
+			WithObjects(referenced).
+			WithStatusSubresource(referenced).
+			Build(),
+		Config:   &configv1alpha1.OperatorConfiguration{},
+		Recorder: record.NewFakeRecorder(10),
+	}
+
+	ref := friendlyCheckpointName
+	dgd := betaDGD(t, &v1alpha1.DynamoGraphDeployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-dgd",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.DynamoGraphDeploymentSpec{
+			Services: map[string]*v1alpha1.DynamoComponentDeploymentSharedSpec{
+				"worker": {
+					ComponentType: string(commonconsts.ComponentTypeWorker),
+					GPUMemoryService: &v1alpha1.GPUMemoryServiceSpec{
+						Enabled: true,
+						Mode:    v1alpha1.GMSModeIntraPod,
+						Checkpoint: &v1alpha1.GMSCheckpointSpec{
+							Loader: &v1alpha1.GMSSidecarSpec{
+								Image:   "custom-loader:latest",
+								Command: []string{"/bin/custom-loader"},
+							},
+							Saver: &v1alpha1.GMSSidecarSpec{Image: "service-saver-ignored:latest"},
+						},
+					},
+					Checkpoint: &v1alpha1.ServiceCheckpointConfig{
+						Enabled:       true,
+						Mode:          v1alpha1.CheckpointModeManual,
+						CheckpointRef: &ref,
+					},
+				},
+			},
+		},
+	})
+
+	_, checkpointInfos, err := reconciler.reconcileCheckpoints(ctx, dgd)
+	if err != nil {
+		t.Fatalf("reconcileCheckpoints() error = %v", err)
+	}
+
+	info := checkpointInfos["worker"]
+	if info == nil || info.GPUMemoryService == nil || info.GPUMemoryService.Checkpoint == nil || info.GPUMemoryService.Checkpoint.Loader == nil {
+		t.Fatalf("expected resolved GMS checkpoint info to carry loader override, got %#v", info)
+	}
+	if got := info.GPUMemoryService.Checkpoint.Loader.Image; got != "custom-loader:latest" {
+		t.Fatalf("loader image = %q, want custom-loader:latest", got)
+	}
+	if got := info.GPUMemoryService.Checkpoint.Loader.Command; len(got) != 1 || got[0] != "/bin/custom-loader" {
+		t.Fatalf("loader command = %#v, want [/bin/custom-loader]", got)
+	}
+	if info.GPUMemoryService.Checkpoint.Saver != nil {
+		t.Fatalf("restore checkpoint info must not pick up service saver override, got %#v", info.GPUMemoryService.Checkpoint.Saver)
 	}
 }
 

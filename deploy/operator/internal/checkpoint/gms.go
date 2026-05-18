@@ -32,11 +32,7 @@ const (
 // The loader is a regular sidecar; the GMS RO lock — not init-phase ordering —
 // gates the restored engine on weight load. Idempotent.
 //
-// If checkpointSpec.Loader is non-nil, the user-supplied image/command/envs/
-// volumeMounts are layered on top of the operator-built default container via
-// applyGMSSidecarSpec. The default container (including GMS_CHECKPOINT_DIR env
-// and the checkpoint-PVC volume mount) is built unconditionally first, so when
-// checkpointSpec.Loader is nil behavior is byte-identical to before.
+// If checkpointSpec.Loader is set, it is layered onto the default loader.
 func EnsureGMSRestoreSidecars(
 	podSpec *corev1.PodSpec,
 	mainContainer *corev1.Container,
@@ -67,11 +63,7 @@ func EnsureGMSRestoreSidecars(
 // as a regular Job container. Saver is a regular container (not init+sleep)
 // so Job completion gates on tensor write.
 //
-// If checkpointSpec.Saver is non-nil, the user-supplied image/command/envs/
-// volumeMounts are layered on top of the operator-built default container via
-// applyGMSSidecarSpec. The default container (including GMS_CHECKPOINT_DIR env
-// and the checkpoint-PVC volume mount) is built unconditionally first, so when
-// checkpointSpec.Saver is nil behavior is byte-identical to before.
+// If checkpointSpec.Saver is set, it is layered onto the default saver.
 func EnsureGMSCheckpointJobSidecars(
 	podSpec *corev1.PodSpec,
 	mainContainer *corev1.Container,
@@ -101,17 +93,9 @@ func EnsureGMSCheckpointJobSidecars(
 	return nil
 }
 
-// applyGMSSidecarSpec layers a user-supplied GMSSidecarSpec on top of the
-// operator-built base container. Empty/nil spec leaves base untouched. The
-// container name is operator-owned and never overwritten; operator-set
-// fields (GMS_SOCKET_DIR env, the gms-intrapod-control mount, the DRA claim,
-// GMS_CHECKPOINT_DIR, the checkpoint-PVC mount) all remain — user fields layer
-// on top, not replace base, except for the explicit overrides Image and Command.
-//
-// Mirrors the merge pattern in dynamo.mergeFrontendSidecarDefaults: image and
-// command are full overrides when non-empty; envs use MergeEnvs (user wins on
-// name collision); volumeMounts append (operator mounts stay); envFromSecret is
-// appended.
+// applyGMSSidecarSpec layers optional user fields onto the default GMS client
+// container. Image and Command override; Env merges except GMS_SOCKET_DIR;
+// EnvFromSecret and VolumeMounts append.
 func applyGMSSidecarSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSSidecarSpec) corev1.Container {
 	if spec == nil {
 		return base
@@ -152,15 +136,16 @@ func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv
 	return cp.Saver
 }
 
-// mergeEnvVars mirrors dynamo.MergeEnvs but is local to this package to avoid
-// an import cycle (the dynamo package imports checkpoint). User-supplied vars
-// win on name collision, matching the semantic of the frontend-sidecar merge.
+// mergeEnvVars uses user-wins semantics except for operator-owned GMS_SOCKET_DIR.
 func mergeEnvVars(base, overrides []corev1.EnvVar) []corev1.EnvVar {
 	envMap := make(map[string]corev1.EnvVar, len(base)+len(overrides))
 	for _, env := range base {
 		envMap[env.Name] = env
 	}
 	for _, env := range overrides {
+		if env.Name == gms.EnvSocketDir {
+			continue
+		}
 		envMap[env.Name] = env
 	}
 	merged := make([]corev1.EnvVar, 0, len(envMap))

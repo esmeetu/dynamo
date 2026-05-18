@@ -602,6 +602,22 @@ func TestDGD_RoundTrip_Experimental(t *testing.T) {
 						GPUMemoryService: &v1beta1.GPUMemoryServiceSpec{
 							Mode:            v1beta1.GMSModeIntraPod,
 							DeviceClassName: "gpu.nvidia.com",
+							Checkpoint: &v1beta1.GMSCheckpointSpec{
+								Loader: &v1beta1.GMSSidecarSpec{
+									Image:         "custom-loader:latest",
+									Command:       []string{"/bin/custom-loader"},
+									Envs:          []corev1.EnvVar{{Name: "LOAD_ENV", Value: "1"}},
+									EnvFromSecret: ptr.To("loader-secret"),
+									VolumeMounts:  []corev1.VolumeMount{{Name: "loader-vol", MountPath: "/loader"}},
+								},
+								Saver: &v1beta1.GMSSidecarSpec{
+									Image:         "custom-saver:latest",
+									Command:       []string{"/bin/custom-saver"},
+									Envs:          []corev1.EnvVar{{Name: "SAVE_ENV", Value: "1"}},
+									EnvFromSecret: ptr.To("saver-secret"),
+									VolumeMounts:  []corev1.VolumeMount{{Name: "saver-vol", MountPath: "/saver"}},
+								},
+							},
 						},
 						Failover: &v1beta1.FailoverSpec{
 							Mode:       v1beta1.GMSModeIntraPod,
@@ -618,6 +634,63 @@ func TestDGD_RoundTrip_Experimental(t *testing.T) {
 	got := roundTripFromV1beta1(t, src)
 	if diff := cmp.Diff(src, got); diff != "" {
 		t.Errorf("round-trip mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestDGD_FromV1alpha1_GMSCheckpointSpecRoundTripsThroughHub(t *testing.T) {
+	src := &DynamoGraphDeployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-gms-checkpoint", Namespace: "ns"},
+		Spec: DynamoGraphDeploymentSpec{
+			Services: map[string]*DynamoComponentDeploymentSharedSpec{
+				"worker": {
+					ComponentType: string(v1beta1.ComponentTypeWorker),
+					GPUMemoryService: &GPUMemoryServiceSpec{
+						Enabled:         true,
+						Mode:            GMSModeIntraPod,
+						DeviceClassName: "gpu.nvidia.com/h100",
+						Checkpoint: &GMSCheckpointSpec{
+							Loader: &GMSSidecarSpec{
+								Image:         "loader:latest",
+								Command:       []string{"custom-loader"},
+								Envs:          []corev1.EnvVar{{Name: "LOAD_ENV", Value: "1"}},
+								EnvFromSecret: ptr.To("loader-secret"),
+								VolumeMounts:  []corev1.VolumeMount{{Name: "loader-vol", MountPath: "/loader"}},
+							},
+							Saver: &GMSSidecarSpec{
+								Image:         "saver:latest",
+								Command:       []string{"custom-saver"},
+								Envs:          []corev1.EnvVar{{Name: "SAVE_ENV", Value: "1"}},
+								EnvFromSecret: ptr.To("saver-secret"),
+								VolumeMounts:  []corev1.VolumeMount{{Name: "saver-vol", MountPath: "/saver"}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	hub := &v1beta1.DynamoGraphDeployment{}
+	if err := src.ConvertTo(hub); err != nil {
+		t.Fatalf("ConvertTo: %v", err)
+	}
+	gms := hub.Spec.Components[0].Experimental.GPUMemoryService
+	if gms == nil || gms.Checkpoint == nil || gms.Checkpoint.Loader == nil || gms.Checkpoint.Saver == nil {
+		t.Fatalf("expected hub GMS checkpoint overrides, got %#v", gms)
+	}
+	if got := gms.Checkpoint.Loader.Image; got != "loader:latest" {
+		t.Fatalf("hub loader image = %q, want loader:latest", got)
+	}
+	if got := gms.Checkpoint.Saver.Image; got != "saver:latest" {
+		t.Fatalf("hub saver image = %q, want saver:latest", got)
+	}
+	if diff := cmp.Diff([]corev1.EnvVar{{Name: "LOAD_ENV", Value: "1"}}, gms.Checkpoint.Loader.Envs); diff != "" {
+		t.Fatalf("hub loader envs mismatch (-want +got):\n%s", diff)
+	}
+
+	got := roundTripFromV1alpha1(t, src)
+	if diff := cmp.Diff(src, got, cmpopts.EquateEmpty()); diff != "" {
+		t.Fatalf("round-trip mismatch (-want +got):\n%s", diff)
 	}
 }
 

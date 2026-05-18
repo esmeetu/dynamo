@@ -128,8 +128,9 @@ func TestEnsureGMSRestoreSidecars_CommandOverride(t *testing.T) {
 }
 
 // TestEnsureGMSRestoreSidecars_EnvsMerge asserts user envs merge with
-// operator-set envs (user wins on name collision, operator vars otherwise
-// preserved).
+// operator-set envs. GMS_SOCKET_DIR remains operator-owned because it points at
+// the injected UDS mount; GMS_CHECKPOINT_DIR is intentionally user-overridable
+// for custom client implementations.
 func TestEnsureGMSRestoreSidecars_EnvsMerge(t *testing.T) {
 	podSpec := gmsTestPodSpec()
 	storage := gmsTestStorage()
@@ -138,6 +139,7 @@ func TestEnsureGMSRestoreSidecars_EnvsMerge(t *testing.T) {
 			Envs: []corev1.EnvVar{
 				{Name: "GMS_TRANSFER_BACKEND", Value: "nixl-gds"},
 				{Name: envCheckpointDir, Value: "/override/path"},
+				{Name: gms.EnvSocketDir, Value: "/bad/socket"},
 			},
 		},
 	}
@@ -154,7 +156,7 @@ func TestEnsureGMSRestoreSidecars_EnvsMerge(t *testing.T) {
 	assert.Equal(t, "nixl-gds", env["GMS_TRANSFER_BACKEND"], "new user env appended")
 	assert.Equal(t, "/override/path", env[envCheckpointDir],
 		"user env wins on name collision with operator-set var")
-	assert.NotEmpty(t, env[gms.EnvSocketDir], "operator GMS_SOCKET_DIR preserved")
+	assert.Equal(t, gms.SharedMountPath, env[gms.EnvSocketDir], "operator GMS_SOCKET_DIR preserved")
 }
 
 // TestEnsureGMSRestoreSidecars_VolumeMountsAppend asserts user mounts are

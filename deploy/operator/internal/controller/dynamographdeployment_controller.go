@@ -1635,6 +1635,7 @@ func (r *DynamoGraphDeploymentReconciler) reconcileCheckpoints(
 		if dynamo.IsIntraPodFailoverEnabled(component) {
 			info.RestoreTargetContainers = dynamo.IntraPodFailoverEngineContainerNames()
 		}
+		overlayServiceGMSRestoreLoader(info, dynamo.GetGPUMemoryService(component))
 
 		// Store checkpoint info for later use in pod spec generation
 		checkpointInfos[componentName] = info
@@ -1703,7 +1704,7 @@ func (r *DynamoGraphDeploymentReconciler) createCheckpointCR(
 		dynamoDeployment.Namespace,
 		checkpointIdentity,
 		podTemplate,
-		dynamo.ToAlphaGPUMemoryService(dynamo.GetGPUMemoryService(component)),
+		gmsSpecForAutoCheckpointSave(dynamo.GetGPUMemoryService(component)),
 	)
 }
 

@@ -208,6 +208,54 @@ type GPUMemoryServiceSpec struct {
 	// +optional
 	// +kubebuilder:default="gpu.nvidia.com"
 	DeviceClassName string `json:"deviceClassName,omitempty"`
+	// checkpoint configures optional GMS checkpoint sidecar overrides.
+	// loader applies to restore pods; saver applies to checkpoint Jobs.
+	// See ExperimentalSpec for the stability caveat.
+	// +optional
+	Checkpoint *GMSCheckpointSpec `json:"checkpoint,omitempty"`
+}
+
+// GMSCheckpointSpec configures optional GMS loader/saver sidecar overrides.
+// Nil fields leave the operator defaults unchanged.
+type GMSCheckpointSpec struct {
+	// loader overrides the gms-loader sidecar injected into restore pods.
+	// +optional
+	Loader *GMSSidecarSpec `json:"loader,omitempty"`
+	// saver overrides the gms-saver sidecar injected into checkpoint Jobs.
+	// +optional
+	Saver *GMSSidecarSpec `json:"saver,omitempty"`
+}
+
+// GMSSidecarSpec configures one GMS client sidecar. Empty fields keep the
+// operator default. image and command override; envs merge; envFromSecret and
+// volumeMounts append. The container name and GMS socket wiring stay managed
+// by the operator.
+type GMSSidecarSpec struct {
+	// image is the container image. When empty the operator default (the main
+	// container's image) is used.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// command is the full container argv. When set, it replaces the default
+	// python module command.
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// envs are additional environment variables. They are merged with
+	// operator-set vars; GMS_SOCKET_DIR remains operator-owned.
+	// +optional
+	Envs []corev1.EnvVar `json:"envs,omitempty"`
+
+	// envFromSecret is an optional Secret name; all keys are exposed as
+	// environment variables via an envFrom source.
+	// +optional
+	EnvFromSecret *string `json:"envFromSecret,omitempty"`
+
+	// volumeMounts are user-owned mounts (typically a PVC declared in
+	// podTemplate.spec.volumes). They are appended to the operator's mounts,
+	// not replacing them.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }
 
 // FailoverSpec configures active-passive failover for a worker component.

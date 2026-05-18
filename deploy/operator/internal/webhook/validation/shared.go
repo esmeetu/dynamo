@@ -425,14 +425,8 @@ func (v *SharedSpecValidator) validateSnapshotWithGPUMemoryService() error {
 		v.spec.GPUMemoryService)
 }
 
-// validateGMSCheckpointSidecars enforces locked design rule D3: a user-supplied
-// gpuMemoryService.checkpoint.{loader,saver} override only makes sense when
-// gpuMemoryService.enabled=true, because the operator only injects the GMS
-// loader/saver sidecars on the GMS-enabled path. This composes with (does not
-// replace) the GMS snapshot feature-gate check in
-// validateSnapshotWithGPUMemoryService: the gate answers "is this combination
-// admissible at all?" while D3 answers "given it is admissible, does the spec
-// internally make sense?".
+// validateGMSCheckpointSidecars requires loader/saver overrides to be on a
+// GMS-enabled service. The GMS snapshot feature gate is checked separately.
 func (v *SharedSpecValidator) validateGMSCheckpointSidecars() error {
 	if v.spec.GPUMemoryService == nil || v.spec.GPUMemoryService.Checkpoint == nil {
 		return nil

@@ -575,6 +575,22 @@ func TestDCD_RoundTrip_Experimental(t *testing.T) {
 					GPUMemoryService: &v1beta1.GPUMemoryServiceSpec{
 						Mode:            v1beta1.GMSModeIntraPod,
 						DeviceClassName: "gpu.nvidia.com",
+						Checkpoint: &v1beta1.GMSCheckpointSpec{
+							Loader: &v1beta1.GMSSidecarSpec{
+								Image:         "custom-loader:latest",
+								Command:       []string{"/bin/custom-loader"},
+								Envs:          []corev1.EnvVar{{Name: "LOAD_ENV", Value: "1"}},
+								EnvFromSecret: ptr.To("loader-secret"),
+								VolumeMounts:  []corev1.VolumeMount{{Name: "loader-vol", MountPath: "/loader"}},
+							},
+							Saver: &v1beta1.GMSSidecarSpec{
+								Image:         "custom-saver:latest",
+								Command:       []string{"/bin/custom-saver"},
+								Envs:          []corev1.EnvVar{{Name: "SAVE_ENV", Value: "1"}},
+								EnvFromSecret: ptr.To("saver-secret"),
+								VolumeMounts:  []corev1.VolumeMount{{Name: "saver-vol", MountPath: "/saver"}},
+							},
+						},
 					},
 				},
 			},

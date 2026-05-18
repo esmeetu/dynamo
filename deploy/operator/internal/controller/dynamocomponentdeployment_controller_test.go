@@ -1857,6 +1857,58 @@ func TestDynamoComponentDeploymentReconciler_generatePodTemplateSpec_RestoreLabe
 		}
 	})
 
+	t.Run("ready gms checkpoint uses service loader override", func(t *testing.T) {
+		t.Setenv(commonconsts.DynamoOperatorAllowGMSSnapshotEnvVar, "1")
+		identity := v1alpha1.DynamoCheckpointIdentity{Model: "test-model", BackendFramework: "vllm"}
+		checkpointName, err := checkpoint.ComputeIdentityHash(identity)
+		if err != nil {
+			t.Fatalf("ComputeIdentityHash failed: %v", err)
+		}
+		dcd := makeDCD(checkpointName)
+		dcd.Spec.PodTemplate.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
+		dcd.Spec.Experimental.GPUMemoryService = &v1beta1.GPUMemoryServiceSpec{
+			Mode: v1beta1.GMSModeIntraPod,
+			Checkpoint: &v1beta1.GMSCheckpointSpec{
+				Loader: &v1beta1.GMSSidecarSpec{
+					Image:   "custom-loader:latest",
+					Command: []string{"/bin/custom-loader"},
+				},
+			},
+		}
+		ckpt := &v1alpha1.DynamoCheckpoint{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      checkpointName,
+				Namespace: "default",
+			},
+			Spec: v1alpha1.DynamoCheckpointSpec{
+				Identity:         identity,
+				GPUMemoryService: &v1alpha1.GPUMemoryServiceSpec{Enabled: true},
+			},
+			Status: v1alpha1.DynamoCheckpointStatus{
+				Phase: v1alpha1.DynamoCheckpointPhaseReady,
+			},
+		}
+
+		r := makeReconciler(dcd, ckpt)
+		podTemplateSpec, err := r.generatePodTemplateSpec(
+			context.Background(),
+			generateResourceOption{dynamoComponentDeployment: dcd},
+			dynamo.RoleMain,
+		)
+		if err != nil {
+			t.Fatalf("generatePodTemplateSpec failed: %v", err)
+		}
+
+		loader := findContainer(podTemplateSpec.Spec.Containers, checkpoint.GMSLoaderContainer)
+		require.NotNil(t, loader)
+		if got := loader.Image; got != "custom-loader:latest" {
+			t.Fatalf("loader image = %q, want custom-loader:latest", got)
+		}
+		if got := loader.Command; len(got) != 1 || got[0] != "/bin/custom-loader" {
+			t.Fatalf("loader command = %#v, want [/bin/custom-loader]", got)
+		}
+	})
+
 	t.Run("ready checkpoint rewrites only main when extra sidecars are present", func(t *testing.T) {
 		identity := v1alpha1.DynamoCheckpointIdentity{Model: "test-model", BackendFramework: "vllm"}
 		checkpointName, err := checkpoint.ComputeIdentityHash(identity)

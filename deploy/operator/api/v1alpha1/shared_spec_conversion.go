@@ -1062,6 +1062,10 @@ func ConvertFromGPUMemoryServiceSpec(src *GPUMemoryServiceSpec, dst *v1beta1.GPU
 		Mode:            gmsModeToV1beta1(src.Mode),
 		DeviceClassName: src.DeviceClassName,
 	}
+	if src.Checkpoint != nil {
+		dst.Checkpoint = &v1beta1.GMSCheckpointSpec{}
+		ConvertFromGMSCheckpointSpec(src.Checkpoint, dst.Checkpoint)
+	}
 }
 
 // ConvertToGPUMemoryServiceSpec converts the v1beta1 experimental GMS config
@@ -1071,6 +1075,62 @@ func ConvertToGPUMemoryServiceSpec(src *v1beta1.GPUMemoryServiceSpec, dst *GPUMe
 		Enabled:         true,
 		Mode:            gmsModeFromV1beta1(src.Mode),
 		DeviceClassName: src.DeviceClassName,
+	}
+	if src.Checkpoint != nil {
+		dst.Checkpoint = &GMSCheckpointSpec{}
+		ConvertToGMSCheckpointSpec(src.Checkpoint, dst.Checkpoint)
+	}
+}
+
+// ConvertFromGMSCheckpointSpec converts GMS checkpoint sidecar overrides to v1beta1.
+func ConvertFromGMSCheckpointSpec(src *GMSCheckpointSpec, dst *v1beta1.GMSCheckpointSpec) {
+	*dst = v1beta1.GMSCheckpointSpec{}
+	if src.Loader != nil {
+		dst.Loader = &v1beta1.GMSSidecarSpec{}
+		ConvertFromGMSSidecarSpec(src.Loader, dst.Loader)
+	}
+	if src.Saver != nil {
+		dst.Saver = &v1beta1.GMSSidecarSpec{}
+		ConvertFromGMSSidecarSpec(src.Saver, dst.Saver)
+	}
+}
+
+// ConvertToGMSCheckpointSpec converts v1beta1 GMS checkpoint sidecar overrides.
+func ConvertToGMSCheckpointSpec(src *v1beta1.GMSCheckpointSpec, dst *GMSCheckpointSpec) {
+	*dst = GMSCheckpointSpec{}
+	if src.Loader != nil {
+		dst.Loader = &GMSSidecarSpec{}
+		ConvertToGMSSidecarSpec(src.Loader, dst.Loader)
+	}
+	if src.Saver != nil {
+		dst.Saver = &GMSSidecarSpec{}
+		ConvertToGMSSidecarSpec(src.Saver, dst.Saver)
+	}
+}
+
+// ConvertFromGMSSidecarSpec converts one GMS sidecar override to v1beta1.
+func ConvertFromGMSSidecarSpec(src *GMSSidecarSpec, dst *v1beta1.GMSSidecarSpec) {
+	*dst = v1beta1.GMSSidecarSpec{
+		Image:        src.Image,
+		Command:      slices.Clone(src.Command),
+		Envs:         cloneNativeEnvVars(src.Envs),
+		VolumeMounts: cloneNativeVolumeMounts(src.VolumeMounts),
+	}
+	if src.EnvFromSecret != nil {
+		dst.EnvFromSecret = ptr.To(*src.EnvFromSecret)
+	}
+}
+
+// ConvertToGMSSidecarSpec converts one v1beta1 GMS sidecar override.
+func ConvertToGMSSidecarSpec(src *v1beta1.GMSSidecarSpec, dst *GMSSidecarSpec) {
+	*dst = GMSSidecarSpec{
+		Image:        src.Image,
+		Command:      slices.Clone(src.Command),
+		Envs:         cloneNativeEnvVars(src.Envs),
+		VolumeMounts: cloneNativeVolumeMounts(src.VolumeMounts),
+	}
+	if src.EnvFromSecret != nil {
+		dst.EnvFromSecret = ptr.To(*src.EnvFromSecret)
 	}
 }
 
@@ -2126,6 +2186,17 @@ func cloneNativeVolumeMounts(in []corev1.VolumeMount) []corev1.VolumeMount {
 		return nil
 	}
 	out := make([]corev1.VolumeMount, 0, len(in))
+	for i := range in {
+		out = append(out, *in[i].DeepCopy())
+	}
+	return out
+}
+
+func cloneNativeEnvVars(in []corev1.EnvVar) []corev1.EnvVar {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]corev1.EnvVar, 0, len(in))
 	for i := range in {
 		out = append(out, *in[i].DeepCopy())
 	}

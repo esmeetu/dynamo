@@ -90,14 +90,8 @@ func validateDynamoCheckpointGMSSnapshot(ckpt *nvidiacomv1alpha1.DynamoCheckpoin
 	return checkpoint.ValidateGMSSnapshotGate("spec.gpuMemoryService", true, ckpt.Spec.GPUMemoryService)
 }
 
-// validateDynamoCheckpointCheckpointSidecars enforces DynamoCheckpoint-specific
-// rules for the GMSCheckpointSpec overrides:
-//
-//  1. checkpoint.loader is rejected on a DynamoCheckpoint — Jobs only save;
-//     restore happens on worker pods reconciled from a service's
-//     ServiceCheckpointConfig, never on the DynamoCheckpoint Job itself.
-//  2. checkpoint.{loader,saver} require gpuMemoryService.enabled=true (locked
-//     design rule D3, also enforced on DGD via SharedSpecValidator).
+// validateDynamoCheckpointCheckpointSidecars enforces save-side checkpoint rules:
+// loader is invalid on a DynamoCheckpoint, and saver requires GMS enabled.
 func validateDynamoCheckpointCheckpointSidecars(ckpt *nvidiacomv1alpha1.DynamoCheckpoint) error {
 	if ckpt.Spec.GPUMemoryService == nil || ckpt.Spec.GPUMemoryService.Checkpoint == nil {
 		return nil

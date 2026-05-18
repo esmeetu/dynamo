@@ -955,6 +955,7 @@ func (r *DynamoComponentDeploymentReconciler) generatePodTemplateSpec(ctx contex
 		if dynamo.IsIntraPodFailoverEnabled(&opt.dynamoComponentDeployment.Spec.DynamoComponentDeploymentSharedSpec) {
 			info.RestoreTargetContainers = dynamo.IntraPodFailoverEngineContainerNames()
 		}
+		overlayServiceGMSRestoreLoader(info, dynamo.GetGPUMemoryService(component))
 		checkpointInfo = info
 		if err := checkpoint.EnsureStoragePVC(ctx, r.Client, opt.dynamoComponentDeployment.Namespace, r.Config.Checkpoint.Storage); err != nil {
 			return nil, errors.Wrap(err, "failed to ensure checkpoint storage PVC")
