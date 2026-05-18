@@ -1869,7 +1869,7 @@ func TestDynamoComponentDeploymentReconciler_generatePodTemplateSpec_RestoreLabe
 		dcd.Spec.Experimental.GPUMemoryService = &v1beta1.GPUMemoryServiceSpec{
 			Mode: v1beta1.GMSModeIntraPod,
 			Checkpoint: &v1beta1.GMSCheckpointSpec{
-				Loader: &v1beta1.GMSCheckpointClientSpec{
+				Loader: &v1beta1.GMSClientSpec{
 					Image:   "custom-loader:latest",
 					Command: []string{"/bin/custom-loader"},
 				},

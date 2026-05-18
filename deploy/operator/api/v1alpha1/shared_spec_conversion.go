@@ -1086,12 +1086,12 @@ func ConvertToGPUMemoryServiceSpec(src *v1beta1.GPUMemoryServiceSpec, dst *GPUMe
 func ConvertFromGMSCheckpointSpec(src *GMSCheckpointSpec, dst *v1beta1.GMSCheckpointSpec) {
 	*dst = v1beta1.GMSCheckpointSpec{}
 	if src.Loader != nil {
-		dst.Loader = &v1beta1.GMSCheckpointClientSpec{}
-		ConvertFromGMSCheckpointClientSpec(src.Loader, dst.Loader)
+		dst.Loader = &v1beta1.GMSClientSpec{}
+		ConvertFromGMSClientSpec(src.Loader, dst.Loader)
 	}
 	if src.Saver != nil {
-		dst.Saver = &v1beta1.GMSCheckpointClientSpec{}
-		ConvertFromGMSCheckpointClientSpec(src.Saver, dst.Saver)
+		dst.Saver = &v1beta1.GMSClientSpec{}
+		ConvertFromGMSClientSpec(src.Saver, dst.Saver)
 	}
 }
 
@@ -1099,18 +1099,18 @@ func ConvertFromGMSCheckpointSpec(src *GMSCheckpointSpec, dst *v1beta1.GMSCheckp
 func ConvertToGMSCheckpointSpec(src *v1beta1.GMSCheckpointSpec, dst *GMSCheckpointSpec) {
 	*dst = GMSCheckpointSpec{}
 	if src.Loader != nil {
-		dst.Loader = &GMSCheckpointClientSpec{}
-		ConvertToGMSCheckpointClientSpec(src.Loader, dst.Loader)
+		dst.Loader = &GMSClientSpec{}
+		ConvertToGMSClientSpec(src.Loader, dst.Loader)
 	}
 	if src.Saver != nil {
-		dst.Saver = &GMSCheckpointClientSpec{}
-		ConvertToGMSCheckpointClientSpec(src.Saver, dst.Saver)
+		dst.Saver = &GMSClientSpec{}
+		ConvertToGMSClientSpec(src.Saver, dst.Saver)
 	}
 }
 
-// ConvertFromGMSCheckpointClientSpec converts one GMS checkpoint client override to v1beta1.
-func ConvertFromGMSCheckpointClientSpec(src *GMSCheckpointClientSpec, dst *v1beta1.GMSCheckpointClientSpec) {
-	*dst = v1beta1.GMSCheckpointClientSpec{
+// ConvertFromGMSClientSpec converts one GMS client override to v1beta1.
+func ConvertFromGMSClientSpec(src *GMSClientSpec, dst *v1beta1.GMSClientSpec) {
+	*dst = v1beta1.GMSClientSpec{
 		Image:        src.Image,
 		Command:      slices.Clone(src.Command),
 		Envs:         cloneNativeEnvVars(src.Envs),
@@ -1121,9 +1121,9 @@ func ConvertFromGMSCheckpointClientSpec(src *GMSCheckpointClientSpec, dst *v1bet
 	}
 }
 
-// ConvertToGMSCheckpointClientSpec converts one v1beta1 GMS checkpoint client override.
-func ConvertToGMSCheckpointClientSpec(src *v1beta1.GMSCheckpointClientSpec, dst *GMSCheckpointClientSpec) {
-	*dst = GMSCheckpointClientSpec{
+// ConvertToGMSClientSpec converts one v1beta1 GMS client override.
+func ConvertToGMSClientSpec(src *v1beta1.GMSClientSpec, dst *GMSClientSpec) {
+	*dst = GMSClientSpec{
 		Image:        src.Image,
 		Command:      slices.Clone(src.Command),
 		Envs:         cloneNativeEnvVars(src.Envs),

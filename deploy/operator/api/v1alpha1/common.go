@@ -201,17 +201,17 @@ type GPUMemoryServiceSpec struct {
 type GMSCheckpointSpec struct {
 	// Loader configures the client that loads checkpoint artifacts on restore.
 	// +optional
-	Loader *GMSCheckpointClientSpec `json:"loader,omitempty"`
+	Loader *GMSClientSpec `json:"loader,omitempty"`
 	// Saver configures the client that saves checkpoint artifacts in Jobs.
 	// +optional
-	Saver *GMSCheckpointClientSpec `json:"saver,omitempty"`
+	Saver *GMSClientSpec `json:"saver,omitempty"`
 }
 
-// GMSCheckpointClientSpec configures user-controlled fields for a GMS
-// checkpoint client container. Empty fields keep operator defaults. Image and
-// Command override; Envs merge; EnvFromSecret and VolumeMounts append.
-// Container name, placement, and GMS wiring are operator-managed.
-type GMSCheckpointClientSpec struct {
+// GMSClientSpec configures user-controlled fields for a GMS client container.
+// Empty fields keep operator defaults. Image and Command override; Envs merge;
+// EnvFromSecret and VolumeMounts append. Container name, placement, and GMS
+// wiring are operator-managed.
+type GMSClientSpec struct {
 	// Image is the container image. When empty the operator default (the
 	// main container's image) is used.
 	// +optional

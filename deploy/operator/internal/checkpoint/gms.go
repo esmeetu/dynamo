@@ -55,7 +55,7 @@ func EnsureGMSRestoreSidecars(
 	loader := gms.Container(GMSLoaderContainer, gmsCheckpointLoaderModule, mainContainer.Image)
 	loader.VolumeMounts = append(loader.VolumeMounts, corev1.VolumeMount{Name: snapshotprotocol.CheckpointVolumeName, MountPath: storage.BasePath})
 	loader.Env = append(loader.Env, corev1.EnvVar{Name: envCheckpointDir, Value: resolveGMSArtifactDir(storage)})
-	loader = applyGMSCheckpointClientSpec(loader, gmsCheckpointSpecLoader(checkpointSpec))
+	loader = applyGMSClientSpec(loader, gmsCheckpointSpecLoader(checkpointSpec))
 	podSpec.Containers = append(podSpec.Containers, loader)
 }
 
@@ -88,15 +88,15 @@ func EnsureGMSCheckpointJobSidecars(
 	saver := gms.Container(GMSSaverContainer, gmsCheckpointSaverModule, mainContainer.Image)
 	saver.VolumeMounts = append(saver.VolumeMounts, corev1.VolumeMount{Name: snapshotprotocol.CheckpointVolumeName, MountPath: storage.BasePath})
 	saver.Env = append(saver.Env, corev1.EnvVar{Name: envCheckpointDir, Value: gmsArtifactDir})
-	saver = applyGMSCheckpointClientSpec(saver, gmsCheckpointSpecSaver(checkpointSpec))
+	saver = applyGMSClientSpec(saver, gmsCheckpointSpecSaver(checkpointSpec))
 	podSpec.Containers = append(podSpec.Containers, saver)
 	return nil
 }
 
-// applyGMSCheckpointClientSpec layers optional user fields onto the default GMS client
+// applyGMSClientSpec layers optional user fields onto the default GMS client
 // container. Image and Command override; Env merges except GMS_SOCKET_DIR;
 // EnvFromSecret and VolumeMounts append.
-func applyGMSCheckpointClientSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSCheckpointClientSpec) corev1.Container {
+func applyGMSClientSpec(base corev1.Container, spec *nvidiacomv1alpha1.GMSClientSpec) corev1.Container {
 	if spec == nil {
 		return base
 	}
@@ -122,14 +122,14 @@ func applyGMSCheckpointClientSpec(base corev1.Container, spec *nvidiacomv1alpha1
 	return base
 }
 
-func gmsCheckpointSpecLoader(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSCheckpointClientSpec {
+func gmsCheckpointSpecLoader(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSClientSpec {
 	if cp == nil {
 		return nil
 	}
 	return cp.Loader
 }
 
-func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSCheckpointClientSpec {
+func gmsCheckpointSpecSaver(cp *nvidiacomv1alpha1.GMSCheckpointSpec) *nvidiacomv1alpha1.GMSClientSpec {
 	if cp == nil {
 		return nil
 	}

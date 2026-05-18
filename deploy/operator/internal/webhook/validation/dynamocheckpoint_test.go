@@ -43,7 +43,7 @@ func TestValidateDynamoCheckpointCheckpointClients(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: true,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Saver: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
+							Saver: &nvidiacomv1alpha1.GMSClientSpec{
 								Image: "my-saver:latest",
 							},
 						},
@@ -59,7 +59,7 @@ func TestValidateDynamoCheckpointCheckpointClients(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: true,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{
+							Loader: &nvidiacomv1alpha1.GMSClientSpec{
 								Image: "my-loader:latest",
 							},
 						},
@@ -76,8 +76,8 @@ func TestValidateDynamoCheckpointCheckpointClients(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: true,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "my-loader:latest"},
-							Saver:  &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "my-saver:latest"},
+							Loader: &nvidiacomv1alpha1.GMSClientSpec{Image: "my-loader:latest"},
+							Saver:  &nvidiacomv1alpha1.GMSClientSpec{Image: "my-saver:latest"},
 						},
 					},
 				},
@@ -92,7 +92,7 @@ func TestValidateDynamoCheckpointCheckpointClients(t *testing.T) {
 					GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 						Enabled: false,
 						Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-							Saver: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "my-saver:latest"},
+							Saver: &nvidiacomv1alpha1.GMSClientSpec{Image: "my-saver:latest"},
 						},
 					},
 				},
@@ -134,7 +134,7 @@ func TestValidateDynamoCheckpoint_Composition(t *testing.T) {
 			GPUMemoryService: &nvidiacomv1alpha1.GPUMemoryServiceSpec{
 				Enabled: true,
 				Checkpoint: &nvidiacomv1alpha1.GMSCheckpointSpec{
-					Loader: &nvidiacomv1alpha1.GMSCheckpointClientSpec{Image: "loader:latest"},
+					Loader: &nvidiacomv1alpha1.GMSClientSpec{Image: "loader:latest"},
 				},
 			},
 		},
