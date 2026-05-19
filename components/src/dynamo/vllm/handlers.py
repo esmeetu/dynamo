@@ -2749,3 +2749,125 @@ class PrefillWorkerHandler(BaseWorkerHandler):
             # as request input.
             return build_qwen_embedding_params(multi_modal_data, self._qwen_grid_params)
         return None
+
+
+class EmbeddingWorkerHandler:
+    """Standalone handler for OpenAI /v1/embeddings requests on vLLM.
+
+    Does NOT inherit BaseWorkerHandler. The base class does generation-only
+    init (media loaders, KV-block lookup via get_dp_range_for_worker, embedding
+    cache manager) that would either fail or be meaningless on a pooling
+    engine. Embedding inference is a single forward pass with no KV cache, no
+    multimodal data, and no streamed decode.
+    """
+
+    def __init__(
+        self,
+        engine: Any,
+        config: Config,
+        shutdown_event: Optional[asyncio.Event] = None,
+    ) -> None:
+        self.engine_client = engine
+        self.config = config
+        self.shutdown_event = shutdown_event
+        logger.info("Embedding worker handler initialized")
+
+    def cleanup(self) -> None:
+        """Release resources owned by this handler.
+
+        AsyncLLM lifecycle is owned by the worker factory / runtime; nothing
+        for this handler to release beyond default object teardown.
+        """
+        return None
+
+    async def generate(
+        self, request: dict, context: Context
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Handle one OpenAI /v1/embeddings request.
+
+        The Rust frontend forwards the request dict directly. Expected keys:
+        `model: str`, `input: str | list[str]`. Optional `dimensions` and
+        `encoding_format` fields are currently ignored.
+        """
+        # Lazy import to avoid pulling PoolingParams into handlers.py at module
+        # load time for non-embedding workers.
+        from vllm import PoolingParams
+
+        model_name = request.get("model") or self.config.served_model_name or ""
+        input_field = request.get("input")
+        if input_field is None:
+            raise ValueError("Embedding request missing required 'input' field")
+
+        if isinstance(input_field, str):
+            inputs: list[str] = [input_field]
+        elif isinstance(input_field, list):
+            inputs = [str(item) for item in input_field]
+        else:
+            raise TypeError(
+                f"Invalid 'input' type {type(input_field).__name__}; "
+                "expected str or list[str]"
+            )
+
+        pooling_params = PoolingParams()
+        trace_id = context.trace_id if context is not None else None
+
+        embedding_objects: list[Dict[str, Any]] = []
+        prompt_tokens = 0
+
+        for idx, text in enumerate(inputs):
+            request_id = (
+                f"{trace_id}-{idx}" if trace_id else f"embed-{id(context)}-{idx}"
+            )
+            final_output = None
+            async for out in self.engine_client.encode(
+                prompt=text,
+                pooling_params=pooling_params,
+                request_id=request_id,
+            ):
+                final_output = out
+
+            if final_output is None:
+                raise RuntimeError(
+                    f"vLLM engine.encode produced no output for input index {idx}"
+                )
+
+            embedding_objects.append(
+                {
+                    "object": "embedding",
+                    "embedding": _pooling_output_to_list(final_output.outputs.data),
+                    "index": idx,
+                }
+            )
+            token_ids = getattr(final_output, "prompt_token_ids", None) or []
+            prompt_tokens += len(token_ids)
+
+        yield {
+            "object": "list",
+            "data": embedding_objects,
+            "model": model_name,
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "total_tokens": prompt_tokens,
+            },
+        }
+
+
+def _pooling_output_to_list(data: Any) -> list[float]:
+    """Convert a vLLM PoolingOutput.data tensor (or list) to a flat list[float].
+
+    vLLM's pooling pipeline can return a tensor with a singleton batch dim
+    (shape ``(1, hidden_dim)``) instead of a 1D vector (shape ``(hidden_dim,)``).
+    The OpenAI ``/v1/embeddings`` response expects ``data[].embedding`` to be a
+    flat array of floats, so we flatten unconditionally.
+    """
+    if isinstance(data, torch.Tensor):
+        return data.detach().cpu().flatten().tolist()
+    if isinstance(data, (list, tuple)):
+        # Already a list — flatten one level if it's a list-of-lists.
+        if data and isinstance(data[0], (list, tuple)):
+            return [float(x) for row in data for x in row]
+        return [float(x) for x in data]
+    raise TypeError(
+        f"Unsupported PoolingOutput.data type {type(data).__name__}; "
+        "expected torch.Tensor or list"
+    )
