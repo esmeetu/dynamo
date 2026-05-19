@@ -2763,22 +2763,95 @@ class EmbeddingWorkerHandler:
 
     def __init__(
         self,
+        runtime,
         engine: Any,
         config: Config,
         shutdown_event: Optional[asyncio.Event] = None,
     ) -> None:
+        self.runtime = runtime
         self.engine_client = engine
         self.config = config
         self.shutdown_event = shutdown_event
+        # Dead-engine detection: VllmEngineMonitor polls AsyncLLM and triggers
+        # shutdown_event + process exit on EngineDeadError. Without this, a
+        # crashed pooling engine leaves the endpoint registered and serves
+        # failures.
+        self.engine_monitor = VllmEngineMonitor(runtime, engine, shutdown_event)
         logger.info("Embedding worker handler initialized")
 
     def cleanup(self) -> None:
         """Release resources owned by this handler.
 
-        AsyncLLM lifecycle is owned by the worker factory / runtime; nothing
-        for this handler to release beyond default object teardown.
+        AsyncLLM lifecycle is owned by the worker factory / runtime; the
+        engine monitor cancels its background tasks via ``__del__``.
         """
         return None
+
+    async def _monitor_abort(self, context: Context, request_id: str) -> None:
+        """Background task: abort the encode if context is cancelled or
+        shutdown_event fires. Raises EngineShutdown on shutdown so the
+        ``_abort_monitor`` context manager can propagate it.
+
+        Mirrors ``BaseWorkerHandler._monitor_abort`` but trimmed for the
+        embedding path (no ``is_prefill``, no ``abort_guard``).
+        """
+        try:
+            wait_for = [context.async_killed_or_stopped()]
+            shutdown_task = None
+            if self.shutdown_event is not None:
+                shutdown_task = asyncio.create_task(self.shutdown_event.wait())
+                wait_for.append(shutdown_task)
+
+            done, pending = await asyncio.wait(
+                wait_for, return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            logger.debug(f"Aborting embedding request ID: {request_id}")
+            try:
+                await asyncio.shield(self.engine_client.abort(request_id))
+            except asyncio.CancelledError:
+                logger.debug(
+                    f"Abort shielded from cancellation for embedding request "
+                    f"{request_id}, continuing in background"
+                )
+
+            if shutdown_task is not None and shutdown_task in done:
+                raise EngineShutdown("Engine was shut down during embedding.")
+        except asyncio.CancelledError:
+            pass
+        except EngineShutdown:
+            raise
+        except Exception as e:
+            logger.error(
+                f"Error in embedding abort monitor for request {request_id}: {e}"
+            )
+
+    @asynccontextmanager
+    async def _abort_monitor(self, context: Context, request_id: str):
+        """Create + tear down an abort monitor task around one encode call.
+
+        On exit, re-raises EngineShutdown if the monitor caught a shutdown.
+        """
+        task = asyncio.create_task(self._monitor_abort(context, request_id))
+        try:
+            yield task
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            else:
+                # Re-raise EngineShutdown if the monitor task raised it.
+                task.result()
 
     async def generate(
         self, request: dict, context: Context
@@ -2786,8 +2859,9 @@ class EmbeddingWorkerHandler:
         """Handle one OpenAI /v1/embeddings request.
 
         The Rust frontend forwards the request dict directly. Expected keys:
-        `model: str`, `input: str | list[str]`. Optional `dimensions` and
-        `encoding_format` fields are currently ignored.
+        ``model: str``, ``input: str | list[str] | list[int] | list[list[int]]``.
+        Optional ``dimensions`` and ``encoding_format`` fields are currently
+        ignored.
         """
         # Lazy import to avoid pulling PoolingParams into handlers.py at module
         # load time for non-embedding workers.
@@ -2798,15 +2872,15 @@ class EmbeddingWorkerHandler:
         if input_field is None:
             raise ValueError("Embedding request missing required 'input' field")
 
-        if isinstance(input_field, str):
-            inputs: list[str] = [input_field]
-        elif isinstance(input_field, list):
-            inputs = [str(item) for item in input_field]
-        else:
-            raise TypeError(
-                f"Invalid 'input' type {type(input_field).__name__}; "
-                "expected str or list[str]"
-            )
+        # Per OpenAI spec, `input` can be:
+        #   - str           : single text prompt
+        #   - list[str]     : batch of text prompts
+        #   - list[int]     : single pre-tokenized prompt (token IDs)
+        #   - list[list[int]]: batch of pre-tokenized prompts
+        # Token-id forms must be passed to vLLM as TokensPrompt so the engine
+        # skips its own tokenizer; the previous str()-coercion path turned
+        # `[1, 2, 3]` into three text prompts ("1", "2", "3") instead of one.
+        prompts: list[Any] = _classify_embedding_input(input_field)
 
         pooling_params = PoolingParams()
         trace_id = context.trace_id if context is not None else None
@@ -2814,17 +2888,23 @@ class EmbeddingWorkerHandler:
         embedding_objects: list[Dict[str, Any]] = []
         prompt_tokens = 0
 
-        for idx, text in enumerate(inputs):
+        for idx, prompt in enumerate(prompts):
             request_id = (
                 f"{trace_id}-{idx}" if trace_id else f"embed-{id(context)}-{idx}"
             )
+            encode_arg: Any = (
+                prompt
+                if isinstance(prompt, str)
+                else TokensPrompt(prompt_token_ids=prompt)
+            )
             final_output = None
-            async for out in self.engine_client.encode(
-                prompt=text,
-                pooling_params=pooling_params,
-                request_id=request_id,
-            ):
-                final_output = out
+            async with self._abort_monitor(context, request_id):
+                async for out in self.engine_client.encode(
+                    prompt=encode_arg,
+                    pooling_params=pooling_params,
+                    request_id=request_id,
+                ):
+                    final_output = out
 
             if final_output is None:
                 raise RuntimeError(
@@ -2850,6 +2930,67 @@ class EmbeddingWorkerHandler:
                 "total_tokens": prompt_tokens,
             },
         }
+
+
+def _is_token_id(x: Any) -> bool:
+    """True iff ``x`` is an int that could be a vLLM token id.
+
+    Filters out ``bool`` (subclass of int) so ``[True, False]`` is not
+    accepted as a tokenized prompt.
+    """
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _classify_embedding_input(input_field: Any) -> list[Any]:
+    """Map an OpenAI ``input`` payload to a list of vLLM-ready prompts.
+
+    Returns a list whose elements are either:
+      - ``str``        — passed straight to ``engine.encode`` as text, or
+      - ``list[int]``  — wrapped in ``TokensPrompt`` by the caller.
+
+    Rejects mixed lists (e.g. ``["foo", 42]`` or ``[[1, 2], "bar"]``) with
+    a clear ``TypeError`` rather than silently coercing.
+    """
+    if isinstance(input_field, str):
+        return [input_field]
+    if not isinstance(input_field, list):
+        raise TypeError(
+            f"Invalid 'input' type {type(input_field).__name__}; "
+            "expected str, list[str], list[int], or list[list[int]]"
+        )
+    if not input_field:
+        raise ValueError("Embedding request 'input' must be non-empty")
+
+    first = input_field[0]
+    if isinstance(first, str):
+        if not all(isinstance(x, str) for x in input_field):
+            raise TypeError(
+                "'input' list mixes str and non-str entries; pass either "
+                "all strings or all token-id arrays"
+            )
+        return list(input_field)
+    if _is_token_id(first):
+        if not all(_is_token_id(x) for x in input_field):
+            raise TypeError(
+                "'input' list mixes int and non-int entries; for tokenized "
+                "input pass all integers (single prompt) or list[list[int]]"
+            )
+        # Single tokenized prompt.
+        return [list(input_field)]
+    if isinstance(first, list):
+        prompts: list[list[int]] = []
+        for i, item in enumerate(input_field):
+            if not isinstance(item, list) or not all(_is_token_id(x) for x in item):
+                raise TypeError(
+                    f"'input' list element at index {i} must be a list of "
+                    "ints (token IDs); mixed batches are not supported"
+                )
+            prompts.append(list(item))
+        return prompts
+    raise TypeError(
+        f"Unsupported 'input' element type {type(first).__name__}; "
+        "expected str, int, or list[int]"
+    )
 
 
 def _pooling_output_to_list(data: Any) -> list[float]:

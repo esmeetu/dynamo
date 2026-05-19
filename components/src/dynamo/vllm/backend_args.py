@@ -468,3 +468,11 @@ class DynamoVllmConfig(ConfigBase):
             raise ValueError(
                 "--embedding-worker cannot be combined with multimodal flags."
             )
+        if self.benchmark_mode is not None:
+            raise ValueError(
+                "--embedding-worker cannot be combined with --benchmark-mode. "
+                "Benchmark mode injects InstrumentedScheduler, which is a "
+                "generation scheduler and not compatible with pooling engines. "
+                "Embedding workers do not run generation, so prefill/decode "
+                "benchmark sweeps are not meaningful."
+            )

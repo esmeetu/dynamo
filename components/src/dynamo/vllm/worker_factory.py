@@ -265,6 +265,7 @@ class WorkerFactory:
         ) = self.setup_vllm_engine(config, factory, fpm_worker_id=fpm_worker_id)
 
         handler = EmbeddingWorkerHandler(
+            runtime=runtime,
             engine=engine_client,
             config=config,
             shutdown_event=shutdown_event,
