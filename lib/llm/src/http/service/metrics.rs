@@ -2812,7 +2812,7 @@ mod tests {
 
         let metric_families = registry.gather();
         let found = metric_families.iter().any(|mf| {
-            mf.get_name()
+            mf.name()
                 .ends_with(frontend_service::EMBEDDING_LATENCY_SECONDS)
         });
         assert!(
