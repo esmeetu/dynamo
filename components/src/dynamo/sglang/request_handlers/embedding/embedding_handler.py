@@ -2,11 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import base64
 import logging
-import struct
 from collections.abc import AsyncGenerator
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import sglang as sgl
 
@@ -72,7 +70,6 @@ class EmbeddingWorkerHandler(BaseWorkerHandler):
             result,
             embedding_request.model,
             dimensions=embedding_request.dimensions,
-            encoding_format=embedding_request.encoding_format or "float",
         )
         yield response
 
@@ -81,21 +78,21 @@ class EmbeddingWorkerHandler(BaseWorkerHandler):
         ret: Any,
         model_name: str,
         dimensions: Optional[int] = None,
-        encoding_format: str = "float",
     ) -> Dict[str, Any]:
         """Transform SGLang response to OpenAI embedding format.
 
-        Applies the two optional OpenAI fields:
-          * ``dimensions``  -- Matryoshka-style truncation (slice leading N).
-          * ``encoding_format`` -- ``"float"`` (JSON array) or ``"base64"``
-            (little-endian float32 packed bytes, base64-ascii-encoded).
-        """
-        if encoding_format not in ("float", "base64"):
-            raise ValueError(
-                f"Invalid encoding_format {encoding_format!r}; "
-                "expected 'float' or 'base64'"
-            )
+        Applies the optional ``dimensions`` field for Matryoshka-style
+        truncation (slice leading N).
 
+        Note: ``encoding_format=base64`` is part of the OpenAI spec but
+        cannot be honored at this layer alone -- the Rust frontend's
+        response aggregator deserializes ``data[].embedding`` as
+        ``Vec<f32>`` (inherited from the upstream ``async_openai``
+        embeddings types), so a base64 string here would be rejected
+        downstream. Supporting it end-to-end requires owning the
+        embedding response type in ``lib/protocols`` and updating the
+        aggregator. Tracked separately.
+        """
         if not isinstance(ret, list):
             ret = [ret]
 
@@ -114,17 +111,10 @@ class EmbeddingWorkerHandler(BaseWorkerHandler):
                     )
                 embedding = embedding[:dimensions]
 
-            embedding_value: Union[List[float], str]
-            if encoding_format == "base64":
-                packed = struct.pack(f"<{len(embedding)}f", *embedding)
-                embedding_value = base64.b64encode(packed).decode("ascii")
-            else:
-                embedding_value = embedding
-
             embedding_objects.append(
                 {
                     "object": "embedding",
-                    "embedding": embedding_value,
+                    "embedding": embedding,
                     "index": idx,
                 }
             )
