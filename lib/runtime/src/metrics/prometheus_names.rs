@@ -61,6 +61,20 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+/// Normalize a model identifier for use as a Prometheus label value.
+///
+/// The HTTP frontend emits the `model` label from multiple sites (request
+/// lifecycle guards and the per-model config gauges). Without a shared
+/// normalization, the same logical model can produce distinct Prometheus
+/// series for different input casings (e.g. `Qwen/Qwen3-0.6B` vs
+/// `qwen/qwen3-0.6b`), splitting data across dashboards that filter by
+/// `model="$model"`. Every frontend metric site that records the `model`
+/// label should run its value through this helper before passing it to
+/// `with_label_values`.
+pub fn normalize_model_label(model: &str) -> String {
+    model.to_lowercase()
+}
+
 /// Metric name prefixes used across the metrics system.
 pub mod name_prefix {
     /// Prefix for component-scoped metrics, auto-labeled with namespace/endpoint.

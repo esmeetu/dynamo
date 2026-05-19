@@ -25,7 +25,7 @@ use std::{
 
 use crate::local_model::runtime_config::ModelRuntimeConfig;
 use crate::model_card::ModelDeploymentCard;
-use dynamo_runtime::metrics::prometheus_names::clamp_u64_to_i64;
+use dynamo_runtime::metrics::prometheus_names::{clamp_u64_to_i64, normalize_model_label};
 
 use dynamo_runtime::error::ErrorType as DynamoErrorType;
 
@@ -781,6 +781,8 @@ impl Metrics {
         status: &Status,
         error_type: &ErrorType,
     ) -> u64 {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.request_counter
             .with_label_values(&[
                 model,
@@ -830,6 +832,8 @@ impl Metrics {
 
     /// Get the number if inflight requests for the given model
     pub fn get_inflight_count(&self, model: &str) -> i64 {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.inflight_gauge.with_label_values(&[model]).get()
     }
 
@@ -901,6 +905,8 @@ impl Metrics {
         model_name: &str,
         runtime_config: &ModelRuntimeConfig,
     ) {
+        let normalized_model_name = normalize_model_label(model_name);
+        let model_name = normalized_model_name.as_str();
         if let Some(total_kv_blocks) = runtime_config.total_kv_blocks {
             self.model_total_kv_blocks
                 .with_label_values(&[model_name])
@@ -923,18 +929,22 @@ impl Metrics {
     /// Update metrics from a ModelDeploymentCard
     /// This updates both runtime config metrics and MDC-specific metrics
     pub fn update_metrics_from_mdc(&self, card: &ModelDeploymentCard) -> anyhow::Result<()> {
-        self.update_runtime_config_metrics(&card.display_name, &card.runtime_config);
+        // Normalize the model label to lowercase. The original
+        // `card.display_name` casing is still used for logs below.
+        let normalized_model_label = normalize_model_label(&card.display_name);
+        let model_label = normalized_model_label.as_str();
+        self.update_runtime_config_metrics(model_label, &card.runtime_config);
 
         self.model_context_length
-            .with_label_values(&[&card.display_name])
+            .with_label_values(&[model_label])
             .set(card.context_length as i64);
 
         self.model_kv_cache_block_size
-            .with_label_values(&[&card.display_name])
+            .with_label_values(&[model_label])
             .set(card.kv_cache_block_size as i64);
 
         self.model_migration_limit
-            .with_label_values(&[&card.display_name])
+            .with_label_values(&[model_label])
             .set(card.migration_limit as i64);
 
         tracing::debug!(
@@ -947,6 +957,8 @@ impl Metrics {
 
     /// Increment the migration counter for a new request migration
     pub fn inc_migration_new_request(&self, model: &str) {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_migration_total
             .with_label_values(&[model, frontend_service::migration_type::NEW_REQUEST])
             .inc();
@@ -954,6 +966,8 @@ impl Metrics {
 
     /// Increment the migration counter for an ongoing request migration
     pub fn inc_migration_ongoing_request(&self, model: &str) {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_migration_total
             .with_label_values(&[model, frontend_service::migration_type::ONGOING_REQUEST])
             .inc();
@@ -961,6 +975,8 @@ impl Metrics {
 
     /// Get the current count of new request migrations for a model
     pub fn get_migration_new_request_count(&self, model: &str) -> u64 {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_migration_total
             .with_label_values(&[model, frontend_service::migration_type::NEW_REQUEST])
             .get()
@@ -968,6 +984,8 @@ impl Metrics {
 
     /// Get the current count of ongoing request migrations for a model
     pub fn get_migration_ongoing_request_count(&self, model: &str) -> u64 {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_migration_total
             .with_label_values(&[model, frontend_service::migration_type::ONGOING_REQUEST])
             .get()
@@ -975,6 +993,8 @@ impl Metrics {
 
     /// Increment the counter for migrations disabled by max_seq_len being exceeded
     pub fn inc_migration_max_seq_len_exceeded(&self, model: &str) {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_migration_max_seq_len_exceeded_total
             .with_label_values(&[model])
             .inc();
@@ -982,6 +1002,8 @@ impl Metrics {
 
     /// Get the current count of migrations disabled by max_seq_len being exceeded
     pub fn get_migration_max_seq_len_exceeded_count(&self, model: &str) -> u64 {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_migration_max_seq_len_exceeded_total
             .with_label_values(&[model])
             .get()
@@ -989,20 +1011,26 @@ impl Metrics {
 
     /// Increment the cancellation counter
     pub fn inc_cancellation(&self, labels: &CancellationLabels) {
+        let normalized_model = normalize_model_label(&labels.model);
+        let model = normalized_model.as_str();
         self.model_cancellation_total
-            .with_label_values(&[&labels.model, &labels.endpoint, &labels.request_type])
+            .with_label_values(&[model, &labels.endpoint, &labels.request_type])
             .inc();
     }
 
     /// Get the current cancellation count
     pub fn get_cancellation_count(&self, labels: &CancellationLabels) -> u64 {
+        let normalized_model = normalize_model_label(&labels.model);
+        let model = normalized_model.as_str();
         self.model_cancellation_total
-            .with_label_values(&[&labels.model, &labels.endpoint, &labels.request_type])
+            .with_label_values(&[model, &labels.endpoint, &labels.request_type])
             .get()
     }
 
     /// Increment the rejection counter for a request rejected due to resource exhaustion
     pub fn inc_rejection(&self, model: &str, endpoint: Endpoint) {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_rejection_total
             .with_label_values(&[model, &endpoint.to_string()])
             .inc();
@@ -1010,6 +1038,8 @@ impl Metrics {
 
     /// Get the current rejection count for a model and endpoint
     pub fn get_rejection_count(&self, model: &str, endpoint: Endpoint) -> u64 {
+        let normalized_model = normalize_model_label(model);
+        let model = normalized_model.as_str();
         self.model_rejection_total
             .with_label_values(&[model, &endpoint.to_string()])
             .get()
@@ -1042,7 +1072,7 @@ impl Metrics {
 
         InflightGuard::new(
             self.clone(),
-            model.to_string().to_lowercase(),
+            normalize_model_label(model),
             endpoint,
             request_type,
             request_id.to_string(),
@@ -1051,7 +1081,7 @@ impl Metrics {
 
     /// Create a new [`ResponseMetricCollector`] for collecting per-response metrics (i.e., TTFT, ITL)
     pub fn create_response_collector(self: Arc<Self>, model: &str) -> ResponseMetricCollector {
-        ResponseMetricCollector::new(self, model.to_string().to_lowercase())
+        ResponseMetricCollector::new(self, normalize_model_label(model))
     }
 
     /// Create a new [`HttpQueueGuard`] for tracking HTTP processing queue
@@ -1059,7 +1089,7 @@ impl Metrics {
     /// This guard tracks requests from HTTP handler start until first token generation,
     /// providing visibility into HTTP processing queue time before actual LLM processing begins.
     pub fn create_http_queue_guard(self: Arc<Self>, model: &str) -> HttpQueueGuard {
-        HttpQueueGuard::new(self, model.to_string().to_lowercase())
+        HttpQueueGuard::new(self, normalize_model_label(model))
     }
 }
 
@@ -2684,5 +2714,177 @@ mod tests {
             error: None,
         };
         assert!(run_event_converter(annotated).is_ok());
+    }
+
+    /// Regression test: frontend metric paths that take a model name
+    /// (counters, gauges, public getters) must record the label in lowercase,
+    /// so dashboards filtering by model="$model" do not split data across
+    /// mixed-case spellings.
+    #[test]
+    fn test_model_label_lowercased_across_frontend_metric_paths() {
+        let metrics = Arc::new(Metrics::new());
+        let registry = prometheus::Registry::new();
+        metrics.register(&registry).unwrap();
+
+        let mixed = "Qwen/Qwen3-0.6B";
+        let lower = "qwen/qwen3-0.6b";
+        let endpoint = Endpoint::ChatCompletions;
+
+        // Runtime-config gauges
+        let runtime_config = ModelRuntimeConfig {
+            total_kv_blocks: Some(42),
+            max_num_seqs: Some(7),
+            max_num_batched_tokens: Some(2048),
+            ..Default::default()
+        };
+        metrics.update_runtime_config_metrics(mixed, &runtime_config);
+        assert_eq!(
+            metrics
+                .model_total_kv_blocks
+                .with_label_values(&[lower])
+                .get(),
+            42
+        );
+        assert_eq!(
+            metrics.model_max_num_seqs.with_label_values(&[lower]).get(),
+            7
+        );
+        assert_eq!(
+            metrics
+                .model_max_num_batched_tokens
+                .with_label_values(&[lower])
+                .get(),
+            2048
+        );
+
+        // Migration counters
+        metrics.inc_migration_new_request(mixed);
+        metrics.inc_migration_ongoing_request(mixed);
+        metrics.inc_migration_max_seq_len_exceeded(mixed);
+        assert_eq!(metrics.get_migration_new_request_count(mixed), 1);
+        assert_eq!(metrics.get_migration_new_request_count(lower), 1);
+        assert_eq!(metrics.get_migration_ongoing_request_count(lower), 1);
+        assert_eq!(metrics.get_migration_max_seq_len_exceeded_count(lower), 1);
+
+        // Cancellation counter
+        let cancellation_labels = CancellationLabels {
+            model: mixed.to_string(),
+            endpoint: endpoint.to_string(),
+            request_type: RequestType::Unary.to_string(),
+        };
+        metrics.inc_cancellation(&cancellation_labels);
+        let lowered_labels = CancellationLabels {
+            model: lower.to_string(),
+            endpoint: cancellation_labels.endpoint.clone(),
+            request_type: cancellation_labels.request_type.clone(),
+        };
+        assert_eq!(metrics.get_cancellation_count(&lowered_labels), 1);
+
+        // Rejection counter
+        metrics.inc_rejection(mixed, endpoint);
+        assert_eq!(metrics.get_rejection_count(lower, endpoint), 1);
+
+        // Public getters must normalize before reading, otherwise calling them
+        // with a mixed-case model can implicitly create a new series in the
+        // registry under that casing.
+        let _ = metrics.get_request_counter(
+            mixed,
+            &Endpoint::ChatCompletions,
+            &RequestType::Unary,
+            &Status::Success,
+            &ErrorType::None,
+        );
+        let _ = metrics.get_inflight_count(mixed);
+
+        // Sanity check: there should be no series carrying the mixed-case label
+        // for any of the frontend metric families that this fix covers. Use
+        // gather() to verify each metric family ends up with the lowercase
+        // value only.
+        let families = registry.gather();
+        for family in families {
+            let name = family.name();
+            if !name.starts_with("dynamo_frontend_") {
+                continue;
+            }
+            for metric in family.get_metric() {
+                for label in metric.get_label() {
+                    if label.name() == "model" {
+                        let v = label.value();
+                        assert_ne!(
+                            v, mixed,
+                            "frontend metric {} still has a series with mixed-case model label {}",
+                            name, v
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Regression test for the MDC-driven path: `update_metrics_from_mdc`
+    /// records `model_context_length`, `model_kv_cache_block_size`, and
+    /// `model_migration_limit` using the card's `display_name` directly. Without
+    /// normalization those three gauges would carry mixed-case labels even when
+    /// the rest of the frontend uses lowercase.
+    #[test]
+    fn test_update_metrics_from_mdc_lowercases_model_label() {
+        let metrics = Arc::new(Metrics::new());
+        let registry = prometheus::Registry::new();
+        metrics.register(&registry).unwrap();
+
+        let mixed = "Qwen/Qwen3-0.6B";
+        let lower = "qwen/qwen3-0.6b";
+
+        let mut card = ModelDeploymentCard::default();
+        card.display_name = mixed.to_string();
+        card.context_length = 4096;
+        card.kv_cache_block_size = 16;
+        card.migration_limit = 3;
+        metrics
+            .update_metrics_from_mdc(&card)
+            .expect("update_metrics_from_mdc should succeed");
+
+        assert_eq!(
+            metrics
+                .model_context_length
+                .with_label_values(&[lower])
+                .get(),
+            4096
+        );
+        assert_eq!(
+            metrics
+                .model_kv_cache_block_size
+                .with_label_values(&[lower])
+                .get(),
+            16
+        );
+        assert_eq!(
+            metrics
+                .model_migration_limit
+                .with_label_values(&[lower])
+                .get(),
+            3
+        );
+
+        let families = registry.gather();
+        for family in families {
+            let name = family.name();
+            if !name.starts_with("dynamo_frontend_") {
+                continue;
+            }
+            for metric in family.get_metric() {
+                for label in metric.get_label() {
+                    if label.name() == "model" {
+                        assert_ne!(
+                            label.value(),
+                            mixed,
+                            "frontend metric {} still has a series with mixed-case model label {}",
+                            name,
+                            label.value()
+                        );
+                    }
+                }
+            }
+        }
     }
 }
