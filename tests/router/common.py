@@ -995,12 +995,15 @@ def _parse_frontend_rejection_metric(
 
     Args:
         metrics_text: Raw Prometheus metrics text
-        model_name: The model name label value
+        model_name: The model name label value (matched case-insensitively;
+            the frontend lowercases the model label before recording).
         endpoint: The endpoint label value (e.g. "chat_completions")
 
     Returns:
         The metric count, or 0 if not found
     """
+    # dynamo_frontend_* metrics record the model label in lowercase.
+    model_name = model_name.lower()
     metric_name = f"{name_prefix.FRONTEND}_{frontend_service.MODEL_REJECTION_TOTAL}"
     for line in metrics_text.splitlines():
         if not line.startswith(f"{metric_name}{{"):

@@ -306,13 +306,16 @@ def _parse_frontend_cancellation_metric(
 
     Args:
         metrics_text: Raw Prometheus metrics text
-        model_name: The model name label value
+        model_name: The model name label value (matched case-insensitively;
+            the frontend lowercases the model label before recording).
         endpoint: The endpoint label value (e.g. "completions", "chat_completions")
         request_type: The request_type label value ("stream" or "unary")
 
     Returns:
         The metric count, or 0 if not found
     """
+    # dynamo_frontend_* metrics record the model label in lowercase.
+    model_name = model_name.lower()
     for line in metrics_text.splitlines():
         if not line.startswith("dynamo_frontend_model_cancellation_total{"):
             continue

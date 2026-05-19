@@ -374,14 +374,17 @@ def _parse_migration_metric(
 
     Args:
         metrics_text: Raw Prometheus metrics text
-        model_name: The model name label value
+        model_name: The model name label value (matched case-insensitively;
+            the frontend lowercases the model label before recording).
         migration_type: The migration_type label value ("ongoing_request" or "new_request")
 
     Returns:
         The metric count, or 0 if not found
     """
+    # dynamo_frontend_* metrics record the model label in lowercase.
+    model_name = model_name.lower()
     # Match pattern like:
-    # dynamo_frontend_model_migration_total{migration_type="ongoing_request",model="Qwen/Qwen3-0.6B"} 1
+    # dynamo_frontend_model_migration_total{migration_type="ongoing_request",model="qwen/qwen3-0.6b"} 1
     # Labels can be in any order
     pattern = rf'dynamo_frontend_model_migration_total\{{[^}}]*migration_type="{migration_type}"[^}}]*model="{re.escape(model_name)}"[^}}]*\}}\s+(\d+)'
     match = re.search(pattern, metrics_text)
@@ -408,6 +411,8 @@ def _parse_migration_max_seq_len_exceeded_metric(
     Returns:
         The metric count, or 0 if not found
     """
+    # dynamo_frontend_* metrics record the model label in lowercase.
+    model_name = model_name.lower()
     pattern = rf'dynamo_frontend_model_migration_max_seq_len_exceeded_total\{{[^}}]*model="{re.escape(model_name)}"[^}}]*\}}\s+(\d+)'
     match = re.search(pattern, metrics_text)
     return int(match.group(1)) if match else 0
