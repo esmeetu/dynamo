@@ -847,6 +847,47 @@ _Appears in:_
 | `envs` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core) array_ | Envs defines additional environment variables for the frontend sidecar.<br />These are merged with (and can override) the auto-generated Dynamo env vars. |  | Optional: \{\} <br /> |
 
 
+#### GMSCheckpointSpec
+
+
+
+GMSCheckpointSpec configures optional GMS checkpoint client overrides.
+Nil fields leave the operator defaults unchanged.
+
+
+
+_Appears in:_
+- [GPUMemoryServiceSpec](#gpumemoryservicespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `loader` _[GMSClientSpec](#gmsclientspec)_ | Loader configures the client that loads checkpoint artifacts on restore. |  | Optional: \{\} <br /> |
+| `saver` _[GMSClientSpec](#gmsclientspec)_ | Saver configures the client that saves checkpoint artifacts in Jobs. |  | Optional: \{\} <br /> |
+
+
+#### GMSClientSpec
+
+
+
+GMSClientSpec configures user-controlled fields for a GMS client container.
+Empty fields keep operator defaults. Image and Command override; Envs merge;
+EnvFromSecret and VolumeMounts append. Container name, placement, and GMS
+wiring are operator-managed.
+
+
+
+_Appears in:_
+- [GMSCheckpointSpec](#gmscheckpointspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | Image is the container image. When empty the operator default (the<br />main container's image) is used. |  | Optional: \{\} <br /> |
+| `command` _string array_ | Command is the full container argv. When set, it replaces the default<br />python module command. |  | Optional: \{\} <br /> |
+| `envs` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core) array_ | Envs are additional environment variables. They are merged with (and<br />may override) operator-set vars; GMS_SOCKET_DIR remains operator-owned. |  | Optional: \{\} <br /> |
+| `envFromSecret` _string_ | EnvFromSecret is an optional Secret name; all keys are exposed as<br />environment variables via an envFrom source. |  | Optional: \{\} <br /> |
+| `volumeMounts` _[VolumeMount](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#volumemount-v1-core) array_ | VolumeMounts are user-owned mounts (typically a PVC declared in<br />extraPodSpec.podSpec.volumes or job.podSpec.volumes). They are appended<br />to the operator's mounts, not replacing them. |  | Optional: \{\} <br /> |
+
+
 #### GPUMemoryServiceMode
 
 _Underlying type:_ _string_
@@ -886,6 +927,7 @@ _Appears in:_
 | `enabled` _boolean_ | Enabled activates the GMS sidecar. GPU resources on the main container<br />are replaced with a DRA ResourceClaim for shared GPU access. |  |  |
 | `mode` _[GPUMemoryServiceMode](#gpumemoryservicemode)_ | Mode selects the GMS deployment topology. | intraPod | Enum: [intraPod interPod] <br />Optional: \{\} <br /> |
 | `deviceClassName` _string_ | DeviceClassName is the DRA DeviceClass to request GPUs from. | gpu.nvidia.com | Optional: \{\} <br /> |
+| `checkpoint` _[GMSCheckpointSpec](#gmscheckpointspec)_ | Checkpoint configures optional GMS checkpoint client overrides.<br />Loader applies to restore pods; Saver applies to checkpoint Jobs.<br />Requires Enabled=true (enforced by webhook). |  | Optional: \{\} <br /> |
 
 
 #### IngressSpec
@@ -2041,6 +2083,47 @@ _Appears in:_
 | `mocker` _[MockerSpec](#mockerspec)_ | Mocker configures the simulated (mocker) backend for testing without GPUs. |  | Optional: \{\} <br /> |
 
 
+#### GMSCheckpointSpec
+
+
+
+GMSCheckpointSpec configures optional GMS checkpoint client overrides.
+Nil fields leave the operator defaults unchanged.
+
+
+
+_Appears in:_
+- [GPUMemoryServiceSpec](#gpumemoryservicespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `loader` _[GMSClientSpec](#gmsclientspec)_ | loader configures the client that loads checkpoint artifacts on restore. |  | Optional: \{\} <br /> |
+| `saver` _[GMSClientSpec](#gmsclientspec)_ | saver configures the client that saves checkpoint artifacts in Jobs. |  | Optional: \{\} <br /> |
+
+
+#### GMSClientSpec
+
+
+
+GMSClientSpec configures user-controlled fields for a GMS client container.
+Empty fields keep operator defaults. image and command override; envs merge;
+envFromSecret and volumeMounts append. Container name, placement, and GMS
+wiring are operator-managed.
+
+
+
+_Appears in:_
+- [GMSCheckpointSpec](#gmscheckpointspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | image is the container image. When empty the operator default (the main<br />container's image) is used. |  | Optional: \{\} <br /> |
+| `command` _string array_ | command is the full container argv. When set, it replaces the default<br />python module command. |  | Optional: \{\} <br /> |
+| `envs` _[EnvVar](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#envvar-v1-core) array_ | envs are additional environment variables. They are merged with<br />operator-set vars; GMS_SOCKET_DIR remains operator-owned. |  | Optional: \{\} <br /> |
+| `envFromSecret` _string_ | envFromSecret is an optional Secret name; all keys are exposed as<br />environment variables via an envFrom source. |  | Optional: \{\} <br /> |
+| `volumeMounts` _[VolumeMount](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#volumemount-v1-core) array_ | volumeMounts are user-owned mounts (typically a PVC declared in<br />podTemplate.spec.volumes). They are appended to the operator's mounts,<br />not replacing them. |  | Optional: \{\} <br /> |
+
+
 #### GPUMemoryServiceMode
 
 _Underlying type:_ _string_
@@ -2077,6 +2160,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `mode` _[GPUMemoryServiceMode](#gpumemoryservicemode)_ | mode selects the GMS deployment topology. | IntraPod | Enum: [IntraPod InterPod] <br />Optional: \{\} <br /> |
 | `deviceClassName` _string_ | deviceClassName is the DRA `DeviceClass` to request GPUs from. | gpu.nvidia.com | Optional: \{\} <br /> |
+| `checkpoint` _[GMSCheckpointSpec](#gmscheckpointspec)_ | checkpoint configures optional GMS checkpoint client overrides.<br />loader applies to restore pods; saver applies to checkpoint Jobs.<br />See ExperimentalSpec for the stability caveat. |  | Optional: \{\} <br /> |
 
 
 #### GPUSKUType
