@@ -908,7 +908,14 @@ class EmbeddingPayload(BasePayload):
     def extract_embeddings(response):
         """
         Process embeddings API responses.
+
+        Handles both ``encoding_format=float`` (a list of floats) and
+        ``encoding_format=base64`` (a base64-encoded little-endian
+        float32 byte string).
         """
+        import base64
+        import struct
+
         response.raise_for_status()
         result = response.json()
         assert "object" in result, "Missing 'object' in response"
@@ -919,21 +926,35 @@ class EmbeddingPayload(BasePayload):
         assert len(result["data"]) > 0, "Empty data in response"
 
         # Extract embedding vectors and validate structure
-        embeddings = []
+        dims: list[int] = []
         for item in result["data"]:
             assert "object" in item, "Missing 'object' in embedding item"
             assert (
                 item["object"] == "embedding"
             ), f"Expected object='embedding', got {item['object']}"
             assert "embedding" in item, "Missing 'embedding' vector in item"
-            assert isinstance(
-                item["embedding"], list
-            ), "Embedding should be a list of floats"
-            assert len(item["embedding"]) > 0, "Embedding vector should not be empty"
-            embeddings.append(item["embedding"])
+            embedding = item["embedding"]
+            if isinstance(embedding, list):
+                assert len(embedding) > 0, "Embedding vector should not be empty"
+                dims.append(len(embedding))
+            elif isinstance(embedding, str):
+                # base64-encoded little-endian float32 bytes
+                packed = base64.b64decode(embedding, validate=True)
+                assert (
+                    len(packed) > 0 and len(packed) % 4 == 0
+                ), "base64 embedding must decode to a multiple of 4 bytes"
+                n_floats = len(packed) // 4
+                # Round-trip-verify it actually parses as float32
+                struct.unpack(f"<{n_floats}f", packed)
+                dims.append(n_floats)
+            else:
+                raise AssertionError(
+                    f"Embedding should be list[float] or base64 str, "
+                    f"got {type(embedding).__name__}"
+                )
 
         # Return a summary string for validation
-        return f"Generated {len(embeddings)} embeddings with dimension {len(embeddings[0])}"
+        return f"Generated {len(dims)} embeddings with dimension {dims[0]}"
 
     def response_handler(self, response: Any) -> str:
         return EmbeddingPayload.extract_embeddings(response)

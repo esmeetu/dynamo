@@ -601,6 +601,31 @@ sglang_configs = {
                 repeat_count=1,
                 expected_response=["Generated 3 embeddings with dimension"],
             ),
+            # Test `dimensions` truncation (Matryoshka). Qwen3-Embedding-4B
+            # has a hidden dim well above 128, so the truncated vector should
+            # be exactly 128 floats long.
+            embedding_payload(
+                input_text="Hello, world!",
+                repeat_count=1,
+                expected_response=["Generated 1 embeddings with dimension 128"],
+                extra_body={"dimensions": 128},
+            ),
+            # Test `encoding_format=base64`. The validator decodes the
+            # base64 little-endian float32 payload back to floats and asserts
+            # the dimension matches.
+            embedding_payload(
+                input_text="Hello, world!",
+                repeat_count=1,
+                expected_response=["Generated 1 embeddings with dimension"],
+                extra_body={"encoding_format": "base64"},
+            ),
+            # Combined: dimensions + base64.
+            embedding_payload(
+                input_text="Hello, world!",
+                repeat_count=1,
+                expected_response=["Generated 1 embeddings with dimension 64"],
+                extra_body={"dimensions": 64, "encoding_format": "base64"},
+            ),
         ],
     ),
     "completions_only": SGLangConfig(
