@@ -2863,8 +2863,9 @@ class EmbeddingWorkerHandler:
 
         The Rust frontend forwards the request dict directly. Expected keys:
         ``model: str``, ``input: str | list[str] | list[int] | list[list[int]]``.
-        Optional ``dimensions`` and ``encoding_format`` fields are currently
-        ignored.
+        Optional ``dimensions`` (Matryoshka truncation; first N floats of each
+        embedding). ``encoding_format=base64`` is not yet supported end-to-end
+        (the Rust response type rejects strings); tracked in DIS-2099.
         """
         # Lazy import to avoid pulling PoolingParams into handlers.py at module
         # load time for non-embedding workers.
@@ -2884,6 +2885,15 @@ class EmbeddingWorkerHandler:
         # skips its own tokenizer; the previous str()-coercion path turned
         # `[1, 2, 3]` into three text prompts ("1", "2", "3") instead of one.
         prompts: list[Any] = _classify_embedding_input(input_field)
+
+        dimensions = request.get("dimensions")
+        if dimensions is not None and not isinstance(dimensions, int):
+            raise TypeError(
+                f"Invalid 'dimensions' type {type(dimensions).__name__}; "
+                "expected int"
+            )
+        if dimensions is not None and dimensions < 1:
+            raise ValueError(f"dimensions must be >= 1, got {dimensions}")
 
         pooling_params = PoolingParams()
         trace_id = context.trace_id if context is not None else None
@@ -2914,10 +2924,19 @@ class EmbeddingWorkerHandler:
                     f"vLLM engine.encode produced no output for input index {idx}"
                 )
 
+            embedding = _pooling_output_to_list(final_output.outputs.data)
+            if dimensions is not None:
+                if dimensions > len(embedding):
+                    raise ValueError(
+                        f"dimensions={dimensions} exceeds model embedding "
+                        f"dimension {len(embedding)}"
+                    )
+                embedding = embedding[:dimensions]
+
             embedding_objects.append(
                 {
                     "object": "embedding",
-                    "embedding": _pooling_output_to_list(final_output.outputs.data),
+                    "embedding": embedding,
                     "index": idx,
                 }
             )
