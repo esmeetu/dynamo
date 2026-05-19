@@ -2796,7 +2796,10 @@ class EmbeddingWorkerHandler:
         embedding path (no ``is_prefill``, no ``abort_guard``).
         """
         try:
-            wait_for = [context.async_killed_or_stopped()]
+            # `list[Any]` mirrors BaseWorkerHandler._monitor_abort: the
+            # iterable mixes the Future from async_killed_or_stopped() with
+            # the Task from shutdown_event.wait().
+            wait_for: list[Any] = [context.async_killed_or_stopped()]
             shutdown_task = None
             if self.shutdown_event is not None:
                 shutdown_task = asyncio.create_task(self.shutdown_event.wait())
