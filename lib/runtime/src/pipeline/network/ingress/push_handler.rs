@@ -3,7 +3,7 @@
 
 use super::*;
 
-use crate::metrics::prometheus_names::work_handler;
+use crate::metrics::prometheus_names::{labels, normalize_model_label, work_handler};
 use crate::metrics::work_handler_perf::{
     WORK_HANDLER_NETWORK_TRANSIT_SECONDS, WORK_HANDLER_TIME_TO_FIRST_RESPONSE_SECONDS,
 };
@@ -14,6 +14,25 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::Instrument;
 use tracing::info_span;
+
+/// Normalize the `model` label inside a metric label set, leaving all other
+/// labels untouched. Backend worker emitters reach the runtime via
+/// `metrics_labels=[("model", served_model_name)]`, which would otherwise
+/// preserve the user-provided casing and produce series that do not agree
+/// with the HTTP-service-side metrics (which already lowercase).
+fn normalize_metric_labels(input: &[(&str, &str)]) -> Vec<(String, String)> {
+    input
+        .iter()
+        .map(|(k, v)| {
+            let value = if *k == labels::MODEL {
+                normalize_model_label(v)
+            } else {
+                v.to_string()
+            };
+            (k.to_string(), value)
+        })
+        .collect()
+}
 
 /// Metrics configuration for profiling work handlers
 #[derive(Clone, Debug)]
@@ -54,6 +73,12 @@ impl WorkHandlerMetrics {
         metrics_labels: Option<&[(&str, &str)]>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let metrics_labels = metrics_labels.unwrap_or(&[]);
+        let normalized_owned = normalize_metric_labels(metrics_labels);
+        let normalized_refs: Vec<(&str, &str)> = normalized_owned
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let metrics_labels: &[(&str, &str)] = &normalized_refs;
         let metrics = endpoint.metrics();
         let request_counter = metrics.create_intcounter(
             work_handler::REQUESTS_TOTAL,
@@ -401,5 +426,54 @@ where
         drop(_inflight_guard);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_metric_labels;
+
+    #[test]
+    fn normalize_lowercases_model_label_value() {
+        let input = [("model", "Qwen/Qwen3-0.6B")];
+        let result = normalize_metric_labels(&input);
+        assert_eq!(
+            result,
+            vec![("model".to_string(), "qwen/qwen3-0.6b".to_string())]
+        );
+    }
+
+    #[test]
+    fn normalize_leaves_other_labels_unchanged() {
+        let input = [
+            ("model", "Qwen/Qwen3-0.6B"),
+            ("worker_id", "Worker-ABC"),
+            ("namespace", "Dynamo-Prod"),
+        ];
+        let result = normalize_metric_labels(&input);
+        assert_eq!(
+            result,
+            vec![
+                ("model".to_string(), "qwen/qwen3-0.6b".to_string()),
+                ("worker_id".to_string(), "Worker-ABC".to_string()),
+                ("namespace".to_string(), "Dynamo-Prod".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_handles_empty_input() {
+        let input: [(&str, &str); 0] = [];
+        assert!(normalize_metric_labels(&input).is_empty());
+    }
+
+    #[test]
+    fn normalize_is_idempotent_on_already_lowercase() {
+        let input = [("model", "qwen/qwen3-0.6b")];
+        let result = normalize_metric_labels(&input);
+        assert_eq!(
+            result,
+            vec![("model".to_string(), "qwen/qwen3-0.6b".to_string())]
+        );
     }
 }
