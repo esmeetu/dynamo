@@ -37,13 +37,13 @@ from `expected.<impl>.unavailable` across each family's cases.
 
 Run:
     # Markdown table to stdout
-    python3 tests/parity/parser/generate_parity_chart.py \
+    python3 tests/parity/generate_parity_chart.py parser \
         > tests/parity/parser/PARITY.md
 
     # HTML table with clickable YAML links + hover tooltips. Write next
     # to this script so `<a href="fixtures/<family>/PARSER.batch.N.yaml">`
     # resolves when opened in a browser.
-    python3 tests/parity/parser/generate_parity_chart.py --html \
+    python3 tests/parity/generate_parity_chart.py parser --html \
         > tests/parity/parser/PARITY.html
 
 PARITY.{md,html} are for local viewing only; don't check them in.
@@ -68,13 +68,14 @@ FIXTURES = REPO_ROOT / "tests/parity/parser/fixtures"
 PARSER_CASES_MD = REPO_ROOT / "lib/parsers/PARSER_CASES.md"
 PYPROJECT_TOML = REPO_ROOT / "pyproject.toml"
 SCRIPT_DIR = Path(__file__).resolve().parent
+TEMPLATE_DIR = REPO_ROOT / "tests/parity"
 
 RUST_TOOL_CALLING_DIR = REPO_ROOT / "lib/parsers/src/tool_calling"
 
 
 def _make_jinja_env() -> Environment:
     return Environment(
-        loader=FileSystemLoader(SCRIPT_DIR),
+        loader=FileSystemLoader(TEMPLATE_DIR),
         trim_blocks=False,
         lstrip_blocks=True,
         undefined=StrictUndefined,
@@ -1551,7 +1552,7 @@ def render_html(
         if family_filter
         else "Dynamo Parser Parity Table"
     )
-    command = "python3 tests/parity/parser/generate_parity_chart.py --html"
+    command = "python3 tests/parity/generate_parity_chart.py parser --html"
     output = "tests/parity/parser/PARITY.html"
     if family_filter:
         command += f" --family {family_filter}"
@@ -1579,7 +1580,7 @@ def render_html(
     )
 
 
-def main():
+def main(argv: list[str] | None = None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument(
         "--html",
@@ -1590,7 +1591,7 @@ def main():
         "--family",
         help="Render only one parser family, e.g. harmony.",
     )
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     cases, labels = load_all_cases()
     if args.family:

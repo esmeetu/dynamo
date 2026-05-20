@@ -1,8 +1,9 @@
 # Cross-impl parity test suite
 
 Shared test infrastructure for diffing parser / preprocess / postprocess
-behavior across Dynamo, vLLM, and SGLang. Today only the parser stage
-is populated (`parser/`); other stages slot in as siblings as they land.
+behavior across Dynamo, vLLM, and SGLang. Tool call parser parity lives
+in `parser/`; reasoning parser parity lives in `reasoning/`. Other stages
+slot in as siblings as they land.
 
 > **Triaging a tool-call issue from a user?** Before stepping into the
 > parity harness, point them at
@@ -21,11 +22,13 @@ tests/parity/
 ├── README.md                       (this file)
 ├── conftest.py                     ← session-scoped fixtures (server boots, etc.)
 ├── common.py                       ← ParseResult, canonical-JSON diff, decode_arguments
-└── parser/
+├── generate_parity_chart.py        ← common chart CLI: parser / reasoning
+├── parity_chart.html.j2            ← shared HTML template
+├── parser/
     ├── fixtures/                   ← static YAML, generated from Dynamo as oracle
     │   └── <family>/PARSER.batch.yaml         (and per-top-level-case files like PARSER.batch.8.yaml; see Fixture file schema)
     ├── capture_parser_outputs.py     ← drift-check (default) or merge any impl's output into `expected.{dynamo,vllm,sglang}`
-    ├── generate_parity_chart.py    ← print the parity-status table (run on demand; not checked in)
+    ├── chart.py                    ← parser chart adapter
     │
     ├── dynamo.py                   ← M2 in-process wrapper (PyO3 binding)
     ├── vllm.py                     ← M2 in-process wrapper (ToolParserManager)
@@ -35,7 +38,31 @@ tests/parity/
     ├── server.py                   ← M3 subprocess boot helper
     ├── client.py                   ← M3 HTTP client (vllm + sglang)
     └── test_parity_e2e.py          ← M3 harness (server-stack parity over HTTP)
+└── reasoning/
+    ├── fixtures/                   ← static YAML contracts for REASONING.batch.* and REASONING.stream.*
+    ├── chart.py                    ← reasoning chart adapter
+    ├── dynamo.py                   ← Dynamo Rust reasoning parser via PyO3 binding
+    ├── vllm.py                     ← vLLM reasoning parser wrapper
+    ├── sglang.py                   ← SGLang reasoning parser wrapper
+    └── test_parity_reasoning.py    ← M2 harness for reasoning parser parity
 ```
+
+## Reasoning parity status
+
+The initial reasoning harness uses the same contract shape as `parser/`:
+each `REASONING.*.yaml` fixture records `expected.dynamo`,
+`expected.vllm`, and `expected.sglang`. A peer block can anchor to Dynamo,
+document a divergence, mark an expected error, or say the peer parser is
+unavailable.
+
+Generate the reasoning chart from repo root:
+
+```bash
+python3 tests/parity/generate_parity_chart.py reasoning --html > tests/parity/reasoning/PARITY.html
+```
+
+`PARITY.html` is for local review, like the parser chart. The YAML fixtures
+remain the source of truth.
 
 ## Three methods (M1, M2, M3) — what each one really means
 
@@ -159,11 +186,11 @@ somewhere you can browse:
 
 ```bash
 # Markdown — paste into a PR description or browse in any editor.
-python3 tests/parity/parser/generate_parity_chart.py > PARITY.md
+python3 tests/parity/generate_parity_chart.py parser > PARITY.md
 
 # HTML — clickable cells link to the source fixture YAML; hover over any
 # non-= cell to see the case description and the divergence reason.
-python3 tests/parity/parser/generate_parity_chart.py --html > PARITY.html
+python3 tests/parity/generate_parity_chart.py parser --html > PARITY.html
 ```
 
 Run from the repo root so the HTML's relative `<a href=...>` links to
@@ -490,7 +517,7 @@ PARSER.batch.8.b:
 Then regenerate the table so the cell flips:
 
 ```bash
-python3 tests/parity/parser/generate_parity_chart.py > PARITY.md
+python3 tests/parity/generate_parity_chart.py parser > PARITY.md
 ```
 
 Pytest should now be fully green; the table cell flips to `=`.
@@ -840,5 +867,5 @@ real value-add is the cross-impl half (vLLM and SGLang).
    `{error: <substring>}` so the test asserts on a stable signature
    rather than the full volatile message. Add a `reason:` field to
    intentional divergences so they show as `V`/`S` not `V?`/`S?` in the
-   table.
-6. Regenerate the table: `python3 tests/parity/parser/generate_parity_chart.py > PARITY.md`.
+   chart.
+6. Regenerate the chart: `python3 tests/parity/generate_parity_chart.py parser > PARITY.md`.
