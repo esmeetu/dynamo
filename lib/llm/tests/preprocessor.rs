@@ -532,6 +532,56 @@ pub mod openai_preprocessor_tests {
     }
 
     #[tokio::test]
+    async fn test_harmony_tool_call_marker_stays_visible_for_tools() {
+        if let Err(e) = get_hf_token() {
+            println!("HF_TOKEN is not set, skipping test: {}", e);
+            return;
+        }
+        let mut mdc = make_mdc_from_repo(
+            "tests/data/sample-models",
+            "openai/gpt-oss-120b",
+            "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+            Some(vec![PromptContextMixin::OaiChat]),
+        )
+        .await;
+        mdc.runtime_config.tool_call_parser = Some("harmony".to_string());
+
+        let oai_preprocessor = OpenAIPreprocessor::new(mdc.clone()).unwrap();
+        let request = Request::from(
+            SINGLE_CHAT_MESSAGE,
+            Some(TOOLS),
+            Some(dynamo_protocols::types::ChatCompletionToolChoiceOption::Auto),
+            mdc.slug().to_string(),
+        );
+        let preprocessed_request = oai_preprocessor
+            .preprocess_request(&request, None)
+            .await
+            .unwrap()
+            .0;
+
+        let engine_eos_ids: HashSet<_> =
+            preprocessed_request.eos_token_ids.iter().cloned().collect();
+        assert_eq!(
+            engine_eos_ids,
+            vec![200002, 199999, 200012].into_iter().collect(),
+            "the engine still needs the full EOS set so <|call|> stops generation",
+        );
+
+        let hidden_eos_ids: HashSet<_> = preprocessed_request
+            .stop_conditions
+            .stop_token_ids_hidden
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        assert_eq!(
+            hidden_eos_ids,
+            vec![200002, 199999].into_iter().collect(),
+            "<|call|> must remain visible to the Harmony parser"
+        );
+    }
+
+    #[tokio::test]
     async fn test_agent_context_propagates_to_preprocessed_request() {
         if let Err(e) = get_hf_token() {
             println!("HF_TOKEN is not set, skipping test: {}", e);

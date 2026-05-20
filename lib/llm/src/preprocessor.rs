@@ -59,6 +59,7 @@ use dynamo_runtime::pipeline::{
 use dynamo_runtime::protocols::annotated::{Annotated, AnnotationsProvider};
 
 use crate::protocols::{
+    TokenIdType,
     common::{OutputOptionsProvider, SamplingOptionsProvider, StopConditionsProvider},
     openai::{
         DeltaGeneratorExt,
@@ -78,6 +79,8 @@ pub use crate::protocols::common::llm_backend::{BackendOutput, PreprocessedReque
 pub use crate::protocols::common::preprocessor::PreprocessedEmbeddingRequest;
 
 use crate::protocols::common::llm_backend::EmbeddingsEngineOutput;
+
+const HARMONY_CALL_MARKER: &str = "<|call|>";
 
 pub const ANNOTATION_FORMATTED_PROMPT: &str = "formatted_prompt";
 pub const ANNOTATION_TOKEN_IDS: &str = "token_ids";
@@ -483,21 +486,24 @@ impl OpenAIPreprocessor {
         builder.model(request.model());
 
         let mut stop_conditions = request.extract_stop_conditions()?;
+        let eos_token_ids = self.model_info.eos_token_ids();
+        let hidden_eos_token_ids =
+            self.hidden_eos_token_ids_for_request(request, &eos_token_ids)?;
         if let Some(stop_tokens) = &mut stop_conditions.stop_token_ids_hidden {
-            for eos_token in self.model_info.eos_token_ids() {
-                if !stop_tokens.contains(&eos_token) {
-                    stop_tokens.push(eos_token);
+            for eos_token_id in hidden_eos_token_ids {
+                if !stop_tokens.contains(&eos_token_id) {
+                    stop_tokens.push(eos_token_id);
                 }
             }
         } else {
-            stop_conditions.stop_token_ids_hidden = Some(self.model_info.eos_token_ids());
+            stop_conditions.stop_token_ids_hidden = Some(hidden_eos_token_ids);
         }
 
         // apply ignore eos if not already set
         stop_conditions.apply_ignore_eos();
 
         if !stop_conditions.ignore_eos.unwrap_or(false) {
-            builder.eos_token_ids(self.model_info.eos_token_ids());
+            builder.eos_token_ids(eos_token_ids);
         }
 
         builder.stop_conditions(stop_conditions);
@@ -561,6 +567,68 @@ impl OpenAIPreprocessor {
         builder.mm_processor_kwargs(request.mm_processor_kwargs().cloned());
 
         Ok(builder)
+    }
+
+    fn hidden_eos_token_ids_for_request<R: OAIChatLikeRequest>(
+        &self,
+        request: &R,
+        eos_token_ids: &[TokenIdType],
+    ) -> Result<Vec<TokenIdType>> {
+        let mut hidden_eos_token_ids = eos_token_ids.to_vec();
+
+        let has_tools = request
+            .tools()
+            .as_ref()
+            .and_then(|tools| tools.len())
+            .is_some_and(|len| len > 0);
+        let tool_choice_none = request
+            .tool_choice()
+            .as_ref()
+            .and_then(|tool_choice| tool_choice.as_str())
+            == Some("none");
+
+        if Self::should_keep_harmony_call_marker_visible(
+            self.tool_call_parser.as_deref(),
+            has_tools,
+            tool_choice_none,
+        ) {
+            let call_marker = self
+                .tokenizer
+                .encode(HARMONY_CALL_MARKER)
+                .with_context(|| {
+                    format!("Failed to encode Harmony marker {HARMONY_CALL_MARKER}")
+                })?;
+            if !Self::remove_single_token_marker(&mut hidden_eos_token_ids, call_marker.token_ids())
+            {
+                tracing::debug!(
+                    token_ids = ?call_marker.token_ids(),
+                    marker = HARMONY_CALL_MARKER,
+                    "Harmony call marker was not a single hidden EOS token"
+                );
+            }
+        }
+
+        Ok(hidden_eos_token_ids)
+    }
+
+    fn should_keep_harmony_call_marker_visible(
+        tool_call_parser: Option<&str>,
+        has_tools: bool,
+        tool_choice_none: bool,
+    ) -> bool {
+        tool_call_parser == Some("harmony") && has_tools && !tool_choice_none
+    }
+
+    fn remove_single_token_marker(
+        hidden_eos_token_ids: &mut Vec<TokenIdType>,
+        marker_token_ids: &[TokenIdType],
+    ) -> bool {
+        let [marker_token_id] = marker_token_ids else {
+            return false;
+        };
+        let before = hidden_eos_token_ids.len();
+        hidden_eos_token_ids.retain(|token_id| token_id != marker_token_id);
+        hidden_eos_token_ids.len() != before
     }
 
     pub fn apply_template<
@@ -2806,6 +2874,52 @@ mod tests {
                 "FAILED: {desc}",
             );
         }
+    }
+
+    #[test]
+    fn test_harmony_call_marker_visibility_gate() {
+        assert!(OpenAIPreprocessor::should_keep_harmony_call_marker_visible(
+            Some("harmony"),
+            true,
+            false,
+        ));
+        assert!(
+            !OpenAIPreprocessor::should_keep_harmony_call_marker_visible(
+                Some("harmony"),
+                true,
+                true,
+            )
+        );
+        assert!(
+            !OpenAIPreprocessor::should_keep_harmony_call_marker_visible(
+                Some("harmony"),
+                false,
+                false,
+            )
+        );
+        assert!(
+            !OpenAIPreprocessor::should_keep_harmony_call_marker_visible(
+                Some("gemma4"),
+                true,
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn test_remove_single_token_marker_only_removes_single_marker() {
+        let mut hidden_eos = vec![200002, 199999, 200012];
+        assert!(OpenAIPreprocessor::remove_single_token_marker(
+            &mut hidden_eos,
+            &[200012],
+        ));
+        assert_eq!(hidden_eos, vec![200002, 199999]);
+
+        assert!(!OpenAIPreprocessor::remove_single_token_marker(
+            &mut hidden_eos,
+            &[1, 2],
+        ));
+        assert_eq!(hidden_eos, vec![200002, 199999]);
     }
 
     /// PRE.2 — Per-request reasoning gate. See `lib/llm/PREPROCESSOR_CASES.md`.
