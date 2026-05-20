@@ -112,6 +112,55 @@ def parse(
     return ParseResult(calls=calls, normal_text=info.normal_text)
 
 
+def parse_stream(
+    parser_family: str,
+    chunks: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+) -> ParseResult:
+    detector_cls = _FAMILY_TO_SGLANG_DETECTOR.get(parser_family)
+    if detector_cls is None:
+        return ParseResult(
+            error=f"UNAVAILABLE: SGLang has no detector for family={parser_family!r}"
+        )
+
+    normal_text_parts: list[str] = []
+    stream_calls: dict[int, dict[str, Any]] = {}
+
+    try:
+        detector = detector_cls()
+        sg_tools = _build_tools(tools)
+        for chunk in chunks:
+            info = detector.parse_streaming_increment(
+                chunk.get("delta_text") or "", sg_tools
+            )
+            if info.normal_text:
+                normal_text_parts.append(info.normal_text)
+            for position, tool_call in enumerate(info.calls or []):
+                index = int(getattr(tool_call, "tool_index", position) or 0)
+                call = stream_calls.setdefault(index, {"name": None, "arguments": ""})
+                if tool_call.name:
+                    call["name"] = tool_call.name
+                arguments = getattr(tool_call, "parameters", None) or getattr(
+                    tool_call, "arguments", None
+                )
+                if isinstance(arguments, str):
+                    call["arguments"] += arguments
+                elif arguments:
+                    call["arguments"] = arguments
+    except Exception as e:
+        return ParseResult(error=f"{type(e).__name__}: {e}")
+
+    calls = [
+        {
+            "name": call.get("name") or "",
+            "arguments": decode_arguments(call.get("arguments") or ""),
+        }
+        for _, call in sorted(stream_calls.items())
+        if call.get("name") or call.get("arguments")
+    ]
+    return ParseResult(calls=calls, normal_text="".join(normal_text_parts))
+
+
 def _build_tools(tools: list[dict[str, Any]] | None) -> list[Any] | None:
     """Wrap flat tool defs as duck-typed objects with `.function.name` /
     `.function.parameters`. SGLang detectors access these via attribute,

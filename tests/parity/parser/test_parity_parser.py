@@ -130,13 +130,19 @@ def _run_parity_case(
             f"{impl_name}/{family}/{case_id}: n/a stub (no expected: block): "
             f"{fixture['reason']}"
         )
-    parse_mod = importlib.import_module(f"tests.parity.parser.{impl_name}")
-    got = parse_mod.parse(family, fixture["model_text"], fixture.get("tools"))
-
     spec = fixture["expected"][impl_name]
 
     if "unavailable" in spec:
         pytest.skip(f"{impl_name} unavailable for {family}: {spec['unavailable']}")
+
+    parse_mod = importlib.import_module(f"tests.parity.parser.{impl_name}")
+    if "chunks" in fixture:
+        parse_stream = getattr(parse_mod, "parse_stream", None)
+        if parse_stream is None:
+            pytest.fail(f"{impl_name}/{family}/{case_id}: wrapper has no parse_stream")
+        got = parse_stream(family, fixture["chunks"], fixture.get("tools"))
+    else:
+        got = parse_mod.parse(family, fixture["model_text"], fixture.get("tools"))
 
     if "error" in spec:
         if got.error and spec["error"] in got.error:

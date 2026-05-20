@@ -333,6 +333,117 @@ fn validate_finish_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+
+    #[derive(Debug, Deserialize)]
+    struct StreamFixtureDoc {
+        family: String,
+        mode: String,
+        cases: BTreeMap<String, StreamFixtureCase>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct StreamFixtureCase {
+        chunks: Vec<StreamFixtureChunk>,
+        expected: StreamFixtureExpected,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct StreamFixtureChunk {
+        #[serde(default)]
+        delta_text: String,
+        finish_reason: Option<FinishReason>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct StreamFixtureExpected {
+        dynamo: ExpectedStreamOutput,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ExpectedStreamOutput {
+        calls: Vec<ExpectedStreamCall>,
+        normal_text: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ExpectedStreamCall {
+        name: String,
+        arguments: serde_json::Value,
+    }
+
+    fn repo_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    fn load_stream_fixture_case(path: &str, case_id: &str) -> StreamFixtureCase {
+        let path = repo_root().join(path);
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let doc: StreamFixtureDoc = serde_yaml::from_str(&raw)
+            .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()));
+        assert_eq!(doc.mode, "stream");
+        assert!(
+            !doc.family.is_empty(),
+            "stream fixture must declare a parser family"
+        );
+        doc.cases
+            .into_iter()
+            .find_map(|(id, case)| (id == case_id).then_some(case))
+            .unwrap_or_else(|| panic!("missing case {case_id} in {}", path.display()))
+    }
+
+    fn chunks_from_fixture(
+        fixture: &StreamFixtureCase,
+    ) -> Vec<Annotated<NvCreateChatCompletionStreamResponse>> {
+        fixture
+            .chunks
+            .iter()
+            .map(|chunk| make_chunk(&chunk.delta_text, chunk.finish_reason))
+            .collect()
+    }
+
+    fn assert_aggregated_matches_fixture(
+        aggregated: &AggregatedContent,
+        expected: &ExpectedStreamOutput,
+    ) {
+        assert_eq!(
+            aggregated.normal_content, expected.normal_text,
+            "normal content should match fixture"
+        );
+        assert_eq!(aggregated.tool_calls.len(), expected.calls.len());
+        assert_eq!(aggregated.has_tool_calls, !expected.calls.is_empty());
+
+        for (actual, expected_call) in aggregated.tool_calls.iter().zip(&expected.calls) {
+            let actual_function = &actual["function"];
+            assert_eq!(
+                actual_function["name"].as_str(),
+                Some(expected_call.name.as_str())
+            );
+
+            let actual_arguments: serde_json::Value =
+                serde_json::from_str(actual_function["arguments"].as_str().unwrap()).unwrap();
+            assert_eq!(actual_arguments, expected_call.arguments);
+        }
+    }
+
+    async fn run_kimi_k2_stream_fixture_case(case_id: &str) {
+        let fixture = load_stream_fixture_case(
+            "tests/parity/parser/fixtures/kimi_k2/PARSER.stream.1.yaml",
+            case_id,
+        );
+        let chunks = chunks_from_fixture(&fixture);
+
+        let input_stream = stream::iter(chunks);
+        let output_chunks =
+            parse_response_stream(input_stream, true, false, Some("kimi_k2".to_string()), None)
+                .await;
+
+        let aggregated = aggregate_content_from_chunks(&output_chunks);
+        assert_aggregated_matches_fixture(&aggregated, &fixture.expected.dynamo);
+    }
 
     #[tokio::test]
     async fn test_gpt_oss_e2e_with_no_tool_calls_vllm() {
@@ -1418,6 +1529,18 @@ mod tests {
             aggregated.tool_calls[0]["function"]["name"].as_str(),
             Some("get_weather")
         );
+    }
+
+    /// `PARSER.stream.1.a` — complete tool-call payload delivered in one chunk.
+    #[tokio::test]
+    async fn test_kimi_k2_streaming_single_chunk_complete_call() {
+        run_kimi_k2_stream_fixture_case("PARSER.stream.1.a").await;
+    }
+
+    /// `PARSER.stream.1.b` — complete tool call split across parser-significant boundaries.
+    #[tokio::test]
+    async fn test_kimi_k2_streaming_split_boundary_complete_call() {
+        run_kimi_k2_stream_fixture_case("PARSER.stream.1.b").await;
     }
 
     /// Repro for DIS-1765: model hits max_tokens BEFORE emitting section_end.

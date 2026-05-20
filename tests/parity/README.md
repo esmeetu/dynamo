@@ -83,6 +83,24 @@ result = KimiK2Detector().detect_and_parse(text, tools)
 
 **File:** `tests/parity/parser/test_parity_parser.py`.
 
+#### Batch vs stream mode inside M2
+
+Batch fixtures are one-shot: the fixture provides `model_text`, the wrapper calls the implementation's batch parser once, and the harness compares the final `ParseResult`:
+
+```
+model_text -> parse() -> final calls/text
+```
+
+Stream fixtures are stateful: the fixture provides ordered `chunks`, the wrapper feeds each chunk through the implementation's streaming API, the implementation keeps parser state between chunks, and the wrapper aggregates emitted deltas into the same final `ParseResult` shape used by batch tests:
+
+```
+chunk N -> parser state -> maybe content/tool delta -> aggregate -> next chunk
+```
+
+That stateful middle is the thing stream parity is trying to test. Concatenating `chunks[*].delta_text` and calling the batch parser would miss boundary bugs: partial start markers, partial argument payloads, tool-call deltas split across chunks, finish-reason timing, and vLLM cases that require `delta_token_ids`.
+
+`tests/parity/common.py` deliberately stays at the final comparison boundary (`ParseResult`, argument decoding, canonical JSON). It can host small shared helpers for aggregating stream tool-call deltas, but it cannot replace the implementation-specific stream state machine. Dynamo stream parity enters Rust through the PyO3 binding; runtime-image pytest must not compile helper binaries with `cargo run`.
+
 ### Method 3 — end-to-end HTTP test *(upcoming, next step — sibling PR #9189)*
 
 **What's run:** real upstream serving binaries; constrained decoding forces them to emit the fixture text:
@@ -161,7 +179,7 @@ somewhere you can browse:
 # Markdown — paste into a PR description or browse in any editor.
 python3 tests/parity/parser/generate_parity_chart.py > PARITY.md
 
-# HTML — clickable cells link to the source fixture YAML; hover over any
+# HTML table — clickable cells link to the source fixture YAML; hover over any
 # non-= cell to see the case description and the divergence reason.
 python3 tests/parity/parser/generate_parity_chart.py --html > PARITY.html
 ```
@@ -584,7 +602,7 @@ cases:
   Test skips with the message.
 
 The `ref` field is required on per-sub-case files
-(`PARSER.<mode>.<n>.yaml`) and takes one of two forms:
+(`PARSER.<mode>.<n>.yaml`) and takes one of three forms:
 
 - **`ref: originated from <url>`** — there's an upstream test exercising
   this same shape on this same family. The fixture's `model_text` may
@@ -595,8 +613,9 @@ The `ref` field is required on per-sub-case files
 - **`ref: dynamo`** — authored fresh in this repo, no upstream peer.
   Most sub-case taxonomy fillers (`.b` post-only, `.d` between-calls)
   land here because vLLM/SGLang don't test those shapes.
+- **`ref: derived from PARSER.<mode>.<n>[.<sub>]`** — authored in this repo by transforming an existing parity case into a new surface. Streaming fixtures commonly use this when the same `model_text` shape is split into `chunks` or truncated at a stream boundary.
 
-Every sub-case carries one of these two states; there's no "no
+Every sub-case carries one of these three states; there's no "no
 provenance" state. The legacy flat `PARSER.<mode>.yaml` (cases without
 sub-cases) does NOT carry `ref` — those entries predate the convention.
 

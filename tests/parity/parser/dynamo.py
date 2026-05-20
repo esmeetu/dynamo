@@ -6,11 +6,21 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+import importlib.util
 import json
 from typing import Any
 
-from dynamo._core import parse_tool_call
 from tests.parity.common import ParseResult, decode_arguments
+
+_DYNAMO_CORE_SPEC = (
+    importlib.util.find_spec("dynamo._core")
+    if importlib.util.find_spec("dynamo") is not None
+    else None
+)
+_DYNAMO_CORE = (
+    importlib.import_module("dynamo._core") if _DYNAMO_CORE_SPEC is not None else None
+)
 
 
 def parse(
@@ -18,13 +28,18 @@ def parse(
     raw_text: str,
     tools: list[dict[str, Any]] | None,
 ) -> ParseResult:
+    if _DYNAMO_CORE is None:
+        return ParseResult(error="UNAVAILABLE: dynamo._core is not installed")
+
     tools_json = json.dumps(tools) if tools else None
 
     try:
         # The PyO3 binding returns a future that registers with a running
         # event loop, so we must call it from inside an async context.
         async def _run() -> str:
-            return await parse_tool_call(parser_family, raw_text, tools_json)
+            return await _DYNAMO_CORE.parse_tool_call(
+                parser_family, raw_text, tools_json
+            )
 
         result_json: str = asyncio.run(_run())
         raw = json.loads(result_json)
@@ -35,6 +50,38 @@ def parse(
         {
             "name": c["function"]["name"],
             "arguments": decode_arguments(c["function"]["arguments"]),
+        }
+        for c in raw.get("calls") or []
+    ]
+    return ParseResult(calls=calls, normal_text=raw.get("normal_text"))
+
+
+def parse_stream(
+    parser_family: str,
+    chunks: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+) -> ParseResult:
+    if _DYNAMO_CORE is None:
+        return ParseResult(error="UNAVAILABLE: dynamo._core is not installed")
+
+    tools_json = json.dumps(tools) if tools else None
+
+    try:
+
+        async def _run() -> str:
+            return await _DYNAMO_CORE.parse_tool_call_stream(
+                parser_family, json.dumps(chunks), tools_json
+            )
+
+        result_json: str = asyncio.run(_run())
+        raw = json.loads(result_json)
+    except Exception as e:
+        return ParseResult(error=f"{type(e).__name__}: {e}")
+
+    calls = [
+        {
+            "name": c["name"],
+            "arguments": decode_arguments(c["arguments"]),
         }
         for c in raw.get("calls") or []
     ]

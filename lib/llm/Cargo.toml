@@ -201,6 +201,7 @@ modelexpress-common = { workspace = true }
 reqwest = { workspace = true }
 rstest = "0.18.2"
 serial_test = "3"
+serde_yaml = "0.9"
 temp-env = { version = "0.3.6", features = ["async_closure"] }
 tempfile = "3.17.1"
 insta = { version = "1.41", features = [
