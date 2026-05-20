@@ -18,7 +18,8 @@ cases:
         reasoning_text: <think>thinking
         normal_text: answer
         reason: vLLM streaming parser preserves the start marker in this chunked stream shape.
-      sglang: *d_s1
+      sglang:
+        unavailable: SGLang peer not wired for Dynamo parser family 'deepseek_v4'
   REASONING.stream.3:
     description: End marker split across chunks
     chunks:
@@ -32,4 +33,5 @@ cases:
         reasoning_text: <think>thinking</think>answer
         normal_text: ''
         reason: vLLM streaming parser does not recover this split end marker shape.
-      sglang: *d_s3
+      sglang:
+        unavailable: SGLang peer not wired for Dynamo parser family 'deepseek_v4'

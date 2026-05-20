@@ -25,13 +25,15 @@ def parse(
                 fixture.get("token_chunks"),
                 fixture.get("in_reasoning", False),
             )
-        else:
+        elif mode == "batch":
             raw_json = parse_reasoning(
                 parser_family,
                 fixture["model_text"],
                 fixture.get("token_ids"),
                 fixture.get("in_reasoning", False),
             )
+        else:
+            raise ValueError(f"unsupported reasoning mode: {mode!r}")
         raw = json.loads(raw_json)
     except Exception as e:
         return ReasoningResult(error=f"{type(e).__name__}: {e}")

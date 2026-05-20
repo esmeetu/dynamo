@@ -509,7 +509,7 @@ def _html(
     generated = datetime.datetime.now(
         zoneinfo.ZoneInfo("America/Los_Angeles")
     ).strftime("%Y-%m-%d %H:%M %Z")
-    sha = _commit_sha() or "unknown"
+    sha = _commit_sha()
     descriptions = _parse_case_descriptions()
     body_rows = [
         f'<tr class="section"><td data-section-span colspan="{2 + len(columns)}">'
@@ -525,7 +525,7 @@ def _html(
             title="Dynamo reasoning parser parity chart",
             stamp=generated,
             sha=sha,
-            short_sha=sha[:12],
+            short_sha=sha[:12] if sha else "",
             command="python3 tests/parity/generate_parity_chart.py reasoning --html",
             output="tests/parity/reasoning/PARITY.html",
             group_headers=_case_group_headers_html(columns),

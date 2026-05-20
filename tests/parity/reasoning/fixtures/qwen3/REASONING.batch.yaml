@@ -86,4 +86,7 @@ cases:
         reasoning_text: first
         normal_text: ' middle <think>second</think> done'
         reason: vLLM batch parser stops after the first reasoning span.
-      sglang: *d_9
+      sglang:
+        reasoning_text: first
+        normal_text: ' middle <think>second</think> done'
+        reason: SGLang batch parser stops after the first reasoning span.

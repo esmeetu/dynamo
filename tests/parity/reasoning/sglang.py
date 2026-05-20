@@ -12,7 +12,6 @@ from sglang.srt.parser.reasoning_parser import ReasoningParser
 from tests.parity.common import ReasoningResult
 
 _FAMILY_TO_SGLANG_REASONING = {
-    "deepseek_v4": "deepseek-v4",
     "deepseek_r1": "deepseek-r1",
     "qwen3": "qwen3",
 }
@@ -41,7 +40,12 @@ def parse(
 
     try:
         parser = _make_parser(parser_name, fixture)
-        chunks = fixture["chunks"] if mode == "stream" else [fixture["model_text"]]
+        if mode == "stream":
+            chunks = fixture["chunks"]
+        elif mode == "batch":
+            chunks = [fixture["model_text"]]
+        else:
+            raise ValueError(f"unsupported reasoning mode: {mode!r}")
         reasoning_text = ""
         normal_text = ""
         for chunk in chunks:

@@ -44,7 +44,10 @@ cases:
         reasoning_text: thinking</think>answer
         normal_text: ''
         reason: vLLM streaming parser does not recover this split end marker shape.
-      sglang: *d_s3
+      sglang:
+        reasoning_text: thinking</think>answer
+        normal_text: ''
+        reason: SGLang streaming parser does not recover this split end marker shape.
   REASONING.stream.4:
     description: Plain text never enters reasoning mode
     chunks:
