@@ -14,7 +14,10 @@ cases:
       dynamo: &d_s1
         reasoning_text: thinking
         normal_text: answer
-      vllm: *d_s1
+      vllm:
+        reasoning_text: '[THINK]thinking'
+        normal_text: answer
+        reason: vLLM streaming parser preserves the Mistral start marker in this chunked stream shape.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'mistral'
   REASONING.stream.3:
@@ -26,6 +29,9 @@ cases:
       dynamo: &d_s3
         reasoning_text: thinking
         normal_text: answer
-      vllm: *d_s3
+      vllm:
+        reasoning_text: '[THINK]thinking[/THINK]answer'
+        normal_text: ''
+        reason: vLLM streaming parser does not recover this split Mistral end marker shape.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'mistral'

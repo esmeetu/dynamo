@@ -82,5 +82,8 @@ cases:
       dynamo: &d_9
         reasoning_text: firstsecond
         normal_text: middle  done
-      vllm: *d_9
+      vllm:
+        reasoning_text: first
+        normal_text: ' middle <think>second</think> done'
+        reason: vLLM batch parser stops after the first reasoning span.
       sglang: *d_9

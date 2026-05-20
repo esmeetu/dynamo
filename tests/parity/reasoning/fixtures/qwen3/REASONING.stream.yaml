@@ -26,7 +26,10 @@ cases:
       dynamo: &d_s2
         reasoning_text: thinking
         normal_text: answer
-      vllm: *d_s2
+      vllm:
+        reasoning_text: <think>thinking
+        normal_text: answer
+        reason: vLLM streaming parser preserves the start marker when it is split across chunks.
       sglang: *d_s2
   REASONING.stream.3:
     description: End marker split across chunks
@@ -37,7 +40,10 @@ cases:
       dynamo: &d_s3
         reasoning_text: thinking
         normal_text: answer
-      vllm: *d_s3
+      vllm:
+        reasoning_text: thinking</think>answer
+        normal_text: ''
+        reason: vLLM streaming parser does not recover this split end marker shape.
       sglang: *d_s3
   REASONING.stream.4:
     description: Plain text never enters reasoning mode
@@ -48,5 +54,8 @@ cases:
       dynamo: &d_s4
         reasoning_text: ''
         normal_text: plain answer
-      vllm: *d_s4
+      vllm:
+        reasoning_text: plain answer
+        normal_text: ''
+        reason: vLLM Qwen streaming parser treats text before a reasoning end marker as reasoning; serving may bypass it when thinking is disabled.
       sglang: *d_s4

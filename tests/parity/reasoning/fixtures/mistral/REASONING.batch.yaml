@@ -22,6 +22,9 @@ cases:
       dynamo: &d_5
         reasoning_text: thinking without an end marker
         normal_text: ''
-      vllm: *d_5
+      vllm:
+        reasoning_text: ''
+        normal_text: thinking without an end marker
+        reason: vLLM Mistral parser only enters reasoning after the explicit start token.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'mistral'

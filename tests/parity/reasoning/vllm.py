@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from vllm.reasoning import ReasoningParserManager
+from vllm.tokenizers.mistral import MistralTokenizer
 
 from tests.parity.common import ReasoningResult
 
@@ -18,21 +19,89 @@ _FAMILY_TO_VLLM_REASONING = {
     "qwen3": "qwen3",
 }
 
+_SPECIAL_TOKEN_IDS = {
+    "<think>": 1_000_001,
+    "</think>": 1_000_002,
+    "<tool_call>": 1_000_003,
+    "</tool_call>": 1_000_004,
+    "<|channel>": 1_000_005,
+    "<channel|>": 1_000_006,
+    "<|turn>": 1_000_007,
+    "<|tool_call>": 1_000_008,
+    "<|tool_response>": 1_000_009,
+    "[THINK]": 1_000_010,
+    "[/THINK]": 1_000_011,
+}
+_ID_TO_SPECIAL_TOKEN = {v: k for k, v in _SPECIAL_TOKEN_IDS.items()}
+_SPECIAL_TOKENS_BY_LENGTH = sorted(
+    _SPECIAL_TOKEN_IDS,
+    key=len,
+    reverse=True,
+)
+
 
 class _StubTokenizer:
-    all_special_tokens: tuple[str, ...] = ()
+    all_special_tokens = tuple(_SPECIAL_TOKEN_IDS)
+
+    def get_vocab(self) -> dict[str, int]:
+        return dict(_SPECIAL_TOKEN_IDS)
 
     def encode(self, text: str, *args: Any, **kwargs: Any) -> list[int]:
-        return [ord(ch) for ch in text]
+        token_ids: list[int] = []
+        i = 0
+        while i < len(text):
+            for token in _SPECIAL_TOKENS_BY_LENGTH:
+                if text.startswith(token, i):
+                    token_ids.append(_SPECIAL_TOKEN_IDS[token])
+                    i += len(token)
+                    break
+            else:
+                token_ids.append(ord(text[i]))
+                i += 1
+        return token_ids
 
     def decode(self, token_ids: list[int], *args: Any, **kwargs: Any) -> str:
-        return "".join(chr(t) for t in token_ids)
+        return "".join(_ID_TO_SPECIAL_TOKEN.get(t, chr(t)) for t in token_ids)
+
+
+class _StubMistralInnerTokenizer:
+    def get_special_token(self, token: Any) -> int | None:
+        key = getattr(token, "value", token)
+        return _SPECIAL_TOKEN_IDS.get(str(key))
+
+
+class _StubMistralTokenizer(MistralTokenizer):
+    all_special_tokens = tuple(_SPECIAL_TOKEN_IDS)
+
+    def __init__(self) -> None:
+        self.tokenizer = _StubMistralInnerTokenizer()
+
+    def get_vocab(self) -> dict[str, int]:
+        return dict(_SPECIAL_TOKEN_IDS)
+
+    def encode(self, text: str, *args: Any, **kwargs: Any) -> list[int]:
+        return _StubTokenizer().encode(text, *args, **kwargs)
+
+    def decode(self, token_ids: list[int], *args: Any, **kwargs: Any) -> str:
+        return _StubTokenizer().decode(token_ids, *args, **kwargs)
+
+    def __len__(self) -> int:
+        return len(_SPECIAL_TOKEN_IDS)
+
+
+class _Request:
+    skip_special_tokens = False
 
 
 def _make_parser(parser_name: str, fixture: dict[str, Any]) -> Any:
     parser_cls = ReasoningParserManager.get_reasoning_parser(parser_name)
-    tokenizer = _StubTokenizer()
-    chat_template_kwargs = fixture.get("chat_template_kwargs", {})
+    tokenizer = (
+        _StubMistralTokenizer() if parser_name == "mistral" else _StubTokenizer()
+    )
+    chat_template_kwargs = {}
+    if parser_name == "deepseek_v4":
+        chat_template_kwargs["enable_thinking"] = True
+    chat_template_kwargs.update(fixture.get("chat_template_kwargs", {}))
 
     attempts = (
         lambda: parser_cls(tokenizer, chat_template_kwargs=chat_template_kwargs),
@@ -70,12 +139,17 @@ def _run_stream(
     reasoning_text = ""
     normal_text = ""
     reasoning_done = False
-    tokenizer = _StubTokenizer()
+    tokenizer = parser.model_tokenizer
 
     for i, chunk in enumerate(chunks):
-        delta_token_ids = token_chunks[i] if token_chunks else tokenizer.encode(chunk)
         current_text = previous_text + chunk
-        current_token_ids = previous_token_ids + delta_token_ids
+        current_token_ids = tokenizer.encode(current_text)
+        if token_chunks:
+            delta_token_ids = token_chunks[i]
+        elif current_token_ids[: len(previous_token_ids)] == previous_token_ids:
+            delta_token_ids = current_token_ids[len(previous_token_ids) :]
+        else:
+            delta_token_ids = tokenizer.encode(chunk)
 
         if reasoning_done:
             normal_text += chunk
@@ -99,6 +173,14 @@ def _run_stream(
     return ReasoningResult(reasoning_text=reasoning_text, normal_text=normal_text)
 
 
+def _run_batch(parser: Any, fixture: dict[str, Any]) -> ReasoningResult:
+    reasoning_text, normal_text = parser.extract_reasoning(
+        fixture["model_text"],
+        _Request(),
+    )
+    return ReasoningResult(reasoning_text=reasoning_text, normal_text=normal_text)
+
+
 def parse(
     parser_family: str,
     fixture: dict[str, Any],
@@ -116,8 +198,7 @@ def parse(
         parser = _make_parser(parser_name, fixture)
         if mode == "stream":
             chunks = fixture["chunks"]
-        else:
-            chunks = [fixture["model_text"]]
-        return _run_stream(parser, fixture, chunks)
+            return _run_stream(parser, fixture, chunks)
+        return _run_batch(parser, fixture)
     except Exception as e:
         return ReasoningResult(error=f"{type(e).__name__}: {e}")

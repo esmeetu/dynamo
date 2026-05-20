@@ -20,7 +20,13 @@ cases:
           step one
           step two
         normal_text: The answer is 42.
-      vllm: *d_s1
+      vllm:
+        reasoning_text: |-
+          <|channel>thought
+          step one
+          step two
+        normal_text: The answer is 42.
+        reason: vLLM streaming parser preserves the Gemma channel marker in this chunked stream shape.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'gemma4'
   REASONING.stream.2:
@@ -34,7 +40,12 @@ cases:
       dynamo: &d_s2
         reasoning_text: thinking
         normal_text: answer
-      vllm: *d_s2
+      vllm:
+        reasoning_text: ''
+        normal_text: |-
+          <|channel>thought
+          thinking<channel|>answer
+        reason: vLLM streaming parser misses the Gemma channel start when the marker is split across chunks.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'gemma4'
   REASONING.stream.3:
@@ -48,6 +59,11 @@ cases:
       dynamo: &d_s3
         reasoning_text: thinking
         normal_text: answer
-      vllm: *d_s3
+      vllm:
+        reasoning_text: |-
+          <|channel>thought
+          thinking<channel|>answer
+        normal_text: ''
+        reason: vLLM streaming parser does not recover this split Gemma channel end marker shape.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'gemma4'

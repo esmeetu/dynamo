@@ -39,6 +39,9 @@ cases:
       dynamo: &d_5
         reasoning_text: partial
         normal_text: 'intro '
-      vllm: *d_5
+      vllm:
+        reasoning_text: partial
+        normal_text: ''
+        reason: vLLM drops text before an open Gemma reasoning channel.
       sglang:
         unavailable: SGLang peer not wired for Dynamo parser family 'gemma4'
